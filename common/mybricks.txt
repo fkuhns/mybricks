@@ -1,0 +1,67 @@
+micropython libraries (i.e. module) used
+    machine: Pin, PWM, ADC, I2C
+    utime: ticks_ms. sleep
+picobricks specific libraries (i.e. module)
+    picobricks: SSD1306_I2C, WS2812, SHTC3
+
+
+# Raspberry Pi OLED (Organic Light-Emitting Diode) constants
+OLED_WIDTH  = 128
+OLED_HEIGHT =  64
+
+# I2C Bus constants and addresses
+I2C_ID            =    0 # select controller 0 or 1
+# Addresses
+I2C_OLED_ADDR     = 0x3c # OLED Display
+I2C_SHTC3_ADDR    = 0x70 # Temperature and humidity
+
+# Default GPIO pin assignments
+I2C_SDA_PIN =  4
+I2C_SCL_PIN =  5
+RGB_LED_PIN =  6
+LED_PIN     =  7
+BUTT_PIN    = 10
+BUZZ_PIN    = 20
+POT_PIN     = 26
+LDR_PIN     = 27
+
+"""
+# the machine.Pin class models GPIO pins that can be used with different internal controllers
+pin = Pin(GPIO_PIN_NUMBER, IN/OUT, pull UP/DOWN, ...)
+led = Pin(LED_PIN, Pin.OUT) 
+# Create an I2C object instance using pins 4 & 5 (controller 0)
+# optionally set bus speed to 2Mbps (bps == bits/second)
+# ID = identifies which controller, 0 or 1
+# scl = I2C clock signal
+# sdl = I2C data signal
+i2c = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=(Pin(I2C_SDA_PIN)) freq=2000000)
+
+# Show all devices on the I2C buss
+# print(i2c.scan())
+
+# Create an instance of an ADC (analog to digital converter)
+# In python you can use the output of a function call as an argument 
+# in the call of another function
+# # LDR = Light Dependent Resister
+ldr = ADC(Pin(LDR_PIN))
+
+## create oled object and assign to the I2C bus just created
+oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, I2C_OLED_ADDR)
+
+# create object for the SHTC3 device on i2c bus (temp & humid)
+shtc3 = SHTC3(i2c, I2C_SHTC3_ADDR)  
+
+## Create GPIO Pin object for the button
+button = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
+
+## Assign an ADC to the pin attached to the potentiometer (pot)
+pot = ADC(Pin(POT_PIN))
+
+## Associate a PWM controller to the pin attached to the buzzer
+buzzer= PWM(Pin(BUZZ_PIN))
+
+led = Pin(LED_PIN, Pin.OUT)
+pwm_led = PWM(Pin(LED_PIN))
+
+# The RGB LED's Pin is used as PIO (programmable IO) pin.
+rgb_led = WS2812(RGB_LED_PIN, brightness=0.4) """
