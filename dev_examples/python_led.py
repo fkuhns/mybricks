@@ -20,24 +20,24 @@ def my_value(led, val):
     # experiment with the different approaches
     # print("my_value: Before value", led.value(), ", Setting value to", val)
     # print("my_value: Before value " + str(led.value()) + ", Setting value to " + str(val))
-    print("my_value: Before value {}, Setting value to {}".format(led.value(), val))
+    print("my_value: Before value {0}, Set to {1}".format(led.value(), val), end=": ")
     led.value(val)
-    print("my_value: After value ".format(led.value()))
+    print("After value {}".format(led.value()))
 
 def my_toggle(led):
-    print("my_toggle: Before value {}".format(led.value()))
+    print("my_toggle: Before value {}".format(led.value()), end=": ")
     if (led.value() == True):
         led.value(False)
     else:
         led.value(True)
-    print("my_toggle: After value {}".format(led.value()))
+    print("After value {}".format(led.value()))
 
-print("Trying my_value")
+print("\n** Trying my_value()")
 
 my_value(led, 1)
 my_value(led, 0)
 
-print("Trying my_toggle")
+print("\n ** Trying my_toggle()")
 my_toggle(led)
 my_toggle(led)
 
