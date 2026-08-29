@@ -1,4 +1,4 @@
-from machine import Pin#to acces the hardware picobricks                      
+from machine import Pin                     
 #
 # Define global constants
 # -----------------------
