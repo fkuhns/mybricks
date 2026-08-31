@@ -3,29 +3,22 @@ from utime import sleep
 
 POT_PIN = 26
 
-# Maximum voltage to expect
-POT_MAX_VOLT =  3.3
+GPIO_VOLT_MAX =  3.3
+CONV_FACTOR  = GPIO_VOLT_MAX / ((1 << 16) - 1)
 
-CONV_FACTOR = POT_MAX_VOLT / ((1 << 16) - 1)
+MIN_VOLT_DIFF = 0.02
 
-# Volt(raw) = Raw * CONV_FACTOR
-# Raw(volt) = Volt / CONV_FACTOR
-
-# Report pot change if volts change by 0.02V or more
-MIN_ADC_DIFF = 0.02 / CONV_FACTOR
+def get_pot_volts(pot):
+    return pot.read_u16() * CONV_FACTOR
 
 pot = ADC(Pin(POT_PIN, Pin.IN))
-
-last_raw = 0.0
+last = 0.0
 
 while True:
-    # Read as an unsigned 16-bit integer
-    raw  = pot.read_u16()
-    diff = abs(raw - last_raw)
-
-    if diff > MIN_ADC_DIFF:
-        volts = raw * CONV_FACTOR
-        last_raw = raw
-        print("Raw value of Pot {0:6,}, voltage {1:4.3}V".format(raw, volts))
+    volt = get_pot_volts(pot)
+    if abs(volt - last) > MIN_VOLT_DIFF:
+        print("Voltage ", volt)
+        print("\tDiff", abs(volt - last))
+        last = volt
     sleep(0.5)
 

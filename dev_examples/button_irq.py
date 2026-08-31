@@ -5,7 +5,7 @@ BUTT_PIN = 10
 
 ## Debounce
 last_press = 0
-DEBOUNCE_MAX = 200  # Milliseconds to ignore subsequent bounces
+BUTT_DEBOUNCE_MS = 200  # Milliseconds to ignore subsequent bounces
 
 # IRQ handler globals
 pressed = False
@@ -17,7 +17,7 @@ def butt_handler(pin):
     global last_press, pressed, pressed_seen
     current_time = ticks_ms()
 
-    if ticks_diff(current_time, last_press) < DEBOUNCE_MAX:
+    if ticks_diff(current_time, last_press) < BUTT_DEBOUNCE_MS:
         # print("\tButton chatter, ignoring!")
         return
 
