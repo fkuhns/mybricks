@@ -1,7 +1,6 @@
 from machine import Pin,I2C
 from picobricks import SHTC3, SSD1306_I2C
 import utime #time library
-import time
 
 I2C_ID      =  0
 I2C_SDA_PIN =  4
@@ -41,7 +40,7 @@ def doit():
     #print("Start:\n\tTemperature = %df, Humidity = %d%%" % (shtc3.temperature() * 1.8 + 32, shtc3.humidity()))
     try:
         while True:
-            time.sleep(1)
+            utime.sleep(1)
             if utime.time() - current_time >= 3:
                 current_time = utime.time()
                 
@@ -50,8 +49,6 @@ def doit():
                 humid = shtc3.humidity() # percentage
                 #print("\tTemperature = %df, Humidity = %d%%" % (temp, humid))
                 
-                #oled.fill(0)#clear OLED
-                #oled.show()
                 clear_oled(oled)
                 
                 oled.text("Temperature: ", 15, 10)#print "Temperature: " on the OLED at x=15 y=10

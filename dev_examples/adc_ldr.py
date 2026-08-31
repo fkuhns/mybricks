@@ -6,15 +6,13 @@ LDR_PIN     = 27
 
 ## ADC
 GPIO_VOLT_MAX   = 3.3
-ADC_MAX_VALUE   = ((1 << 16) - 1)
-ADC_CONV_FACTOR = GPIO_VOLT_MAX / ((1 << 16) - 1)
 LDR_LOW_LIGHT = 10000
 
 ldr = ADC(Pin(LDR_PIN))
 dark = None
 
 while True:
-    # Note, raw is inversely proportional to the brightness
+    # Note, raw increases when brightness decreases
     raw = ldr.read_u16()
     print("dark = ", dark, "raw = ", raw)
     
