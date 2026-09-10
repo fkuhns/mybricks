@@ -1,4 +1,4 @@
-from machine import Pin,I2C
+from machine import Pin,I2C, Timer
 from picobricks import SHTC3, SSD1306_I2C
 from utime import sleep
 
@@ -18,7 +18,6 @@ def clear_oled(oled):
     oled.fill(0)#clear OLED
     oled.show()
 
-
 i2c = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
 
 oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, I2C_OLED_ADDR)
@@ -33,9 +32,9 @@ oled.text("1 Fred Kuhns", 0, 0)
 oled.text("2 Derf", 55, 10)
 oled.text("3 Sam", 30, 20)
 oled.text("4 Ben", 55, 30)
-oled.text("5", 0, 40)
-oled.text("6", 0, 48)
-oled.text("7", 0, 56)
+oled.text("5", 10, 40)
+oled.text("6", 20, 48)
+oled.text("7",30, 56)
 
 oled.show()#show on OLED
 sleep(1)

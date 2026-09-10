@@ -6,10 +6,11 @@ BUZZ_PIN=20
 
 
 # Associate a PWM controller to the pin attached to the buzzer
-buzzer= PWM(Pin(BUZZ_PIN))
+buzzer= PWM(Pin(BUZZ_PIN, Pin.OUT))
 
 buzzer.duty_u16(5000)
 buzzer.freq(1000)
+
 sleep(0.5)
 buzzer.duty_u16(0)
 sleep(0.5)

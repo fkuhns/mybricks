@@ -1,0 +1,59 @@
+pythonimport time
+from machine import I2C, Pin
+
+# Initialize I2C0 on default PicoBricks V2 pins
+i2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=100000)
+PICOBRICKS_MOTOR_ADDR = 0x44
+
+def set_dc_motor(motor_id, direction, speed):
+    """
+    motor_id: 1 (M1) or 2 (M2)
+    direction: 0=Stop, 1=Forward, 2=Reverse
+    speed: 0 to 100
+    """
+    # Constrain speed parameter
+    speed = max(0, min(100, speed))
+    
+    # Select starting register depending on the motor
+    reg = 0x01 if motor_id == 1 else 0x03
+    
+    # Payload format: [Direction, Speed]
+    payload = bytes([direction, speed])
+    
+    try:
+        i2c.writeto_mem(PICOBRICKS_MOTOR_ADDR, reg, payload)
+    except Exception as e:
+        print(f"I2C Communication Error: {e}")
+
+def set_servo(servo_id, angle):
+    """
+    servo_id: 1 or 2
+    angle: 0 to 180 degrees
+    """
+    angle = max(0, min(180, angle))
+    reg = 0x10 + servo_id  # 0x11 for Servo 1, 0x12 for Servo 2
+    
+    try:
+        i2c.writeto_mem(PICOBRICKS_MOTOR_ADDR, reg, bytes([angle]))
+    except Exception as e:
+        print(f"I2C Communication Error: {e}")
+
+# --- Example Operational Loop ---
+print("Driving PicoBricks V2 Motors...")
+
+# Spin Motor 1 Forward at 75% speed and Motor 2 Reverse at 50% speed
+set_dc_motor(motor_id=1, direction=1, speed=75)
+set_dc_motor(motor_id=2, direction=2, speed=50)
+
+# Move Servos to positions
+set_servo(servo_id=1, angle=90)
+set_servo(servo_id=2, angle=180)
+
+time.sleep(3)
+
+# Stop all components
+set_dc_motor(1, direction=0, speed=0)
+set_dc_motor(2, direction=0, speed=0)
+print("Demo Finished.")
+
+

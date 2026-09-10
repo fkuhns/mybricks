@@ -10,8 +10,8 @@ OLED_HEIGHT =  64
 # I2C Bus constants and addresses
 I2C_ID        =    0 # => pins 4 and 5
 # Addresses
-I2C_OLED_ADDR = 0x3c
-I2C_SHTC3_ADDR    = 0x70 # Temperature and humidity
+I2C_OLED_ADDR  = 0x3c
+I2C_SHTC3_ADDR = 0x70 # Temperature and humidity
 
 # Default pin assignments
 I2C_SDA_PIN =  4
@@ -25,7 +25,12 @@ LDR_PIN     = 27
 
 BUTT_DEBOUNCE_MS = 200  # Milliseconds to ignore subsequent bounces
 
-## ADC
+# OLED
+def clear_oled(oled):
+    oled.fill(0)#clear OLED
+    oled.show()
+
+# ADC
 GPIO_VOLT_MAX   = 3.3
 ADC_MAX_VALUE   = ((1 << 16) - 1)
 ADC_CONV_FACTOR = GPIO_VOLT_MAX / ((1 << 16) - 1)
