@@ -6,21 +6,16 @@ I2C_ID      =  0
 I2C_SDA_PIN =  4
 I2C_SCL_PIN =  5
 
-# OLED specific constants
-# Character size is 8x8, so 16 chars per line (16 * 8 = 128)
-# with 8 lines (8 * 8 = 64)
-OLED_WIDTH  = 128
-OLED_HEIGHT =  64
-
-I2C_OLED_ADDR  = 0x3c
+OLED_WIDTH    = 128 # 16 chars within a row
+OLED_HEIGHT   =  64 #  8 chars within a column
+OLED_I2C_ADDR = 0x3c
 
 def clear_oled(oled):
     oled.fill(0)#clear OLED
     oled.show()
 
-i2c = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
-
-oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, I2C_OLED_ADDR)
+i2c  = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
+oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
 
 clear_oled(oled)
 

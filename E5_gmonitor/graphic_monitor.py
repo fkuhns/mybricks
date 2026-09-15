@@ -6,7 +6,7 @@ LED_PIN     =  7
 POT_PIN     = 26
 
 pwm_led = PWM(Pin(LED_PIN))
-pot = ADC(Pin(POT_PIN, Pin.IN))
+pot     = ADC(Pin(POT_PIN, Pin.IN))
 
 #define the value we get from the pwm_led and pot.
 pwm_led.freq(1000)

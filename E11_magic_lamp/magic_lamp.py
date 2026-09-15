@@ -1,8 +1,12 @@
 from machine import Pin
 from utime import sleep
 
-sensor = Pin( 1, Pin.IN)
-led    = Pin( 7, Pin.OUT)
+LED_PIN          =  7
+SOUND_SENSOR_PIN =  1
+
+# Sound level sensor on pin 1
+sensor = Pin(SOUND_SENSOR_PIN, Pin.IN)
+led    = Pin(LED_PIN, Pin.OUT)
 
 led.value(0)
 

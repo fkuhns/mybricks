@@ -6,8 +6,8 @@ import _thread
 from picobricks import WS2812
 
 # Constants
-WIDTH  = 128
-HEIGHT = 64
+OLED_WIDTH  = 128
+OLED_HEIGHT = 64
 
 I2C_ID      =  0
 
@@ -20,11 +20,13 @@ OLED_WIDTH     = 128
 OLED_HEIGHT    =  64
 I2C_OLED_ADDR  = 0x3c
 
-RED   = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE  = (0, 0, 255)
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
+NEO_DEF_BRIGHTNESS = 0.3
+
+NEO_RED   = (255,   0,   0)
+NEO_GREEN = (  0, 255,   0)
+NEO_BLUE  = (  0,   0, 255)
+NEO_WHITE = (255, 255, 255)
+NEO_BLACK = (  0,   0,   0)
 
 # Local functions
 def oled_clear(oled):
@@ -36,7 +38,7 @@ def oled_set(oled, txt, x=45, y=32):
     oled.show()
 
 def neo_reset(neo):
-    neo.pixels_fill(BLACK)
+    neo.pixels_fill(NEO_BLACK)
     neo.pixels_show()
 
 def neo_set(neo, color):
@@ -44,9 +46,9 @@ def neo_set(neo, color):
     neo.pixels_show()
 
 # Devices
-i2c  = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN)) # freq=1000000)
-neo  = WS2812(RGB_LED_PIN, brightness=0.3)
-oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, I2C_OLED_ADDR)
+i2c    = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN)) # freq=1000000)
+neo    = WS2812(RGB_LED_PIN, brightness=NEO_DEF_BRIGHTNESS)
+oled   = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, I2C_OLED_ADDR)
 button = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
 
 # Initialize devices
@@ -64,15 +66,15 @@ def random_rgb():
     rgb_id=int(urandom.uniform(1,5))
     # Micropython does not support switch/case statements, so we use if/elif/else
     if rgb_id == 1:
-        neo_set(neo, RED)
+        neo_set(neo, NEO_RED)
     elif rgb_id == 2:
-        neo_set(neo, GREEN)
+        neo_set(neo, NEO_GREEN)
     elif rgb_id == 3:
-        neo_set(neo, BLUE)
+        neo_set(neo, NEO_BLUE)
     elif rgb_id == 4:
-        neo_set(neo, WHITE)
+        neo_set(neo, NEO_WHITE)
     else:
-        neo_set(neo, BLACK)
+        neo_set(neo, NEO_BLACK)
 
 def random_text():
     global txt_id

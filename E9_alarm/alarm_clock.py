@@ -19,8 +19,8 @@ I2C_OLED_ADDR  = 0x3c
 
 LDR_LOW_LIGHT = 4000  # 10000
 
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
+NEO_BLACK = (  0,   0,   0)
+NEO_WHITE = (255, 255, 255)
 
 def clear_oled(oled):
     oled.fill(0)#clear OLED
@@ -33,7 +33,7 @@ oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c) #, I2C_OLED_ADDR)
 clear_oled(oled)
 
 neo = WS2812(RGB_LED_PIN, brightness=0.3)
-neo.pixels_fill(BLACK)
+neo.pixels_fill(NEO_BLACK)
 neo.pixels_show()
 
 buzzer = PWM(Pin(BUZZ_PIN, Pin.OUT))
@@ -65,7 +65,7 @@ try:
                     oled.text("Wakeup", 15, 32)
                     oled.show()
 
-                    neo.pixels_fill(WHITE)
+                    neo.pixels_fill(NEO_WHITE)
                     neo.pixels_show()
 
                     buzzer.duty_u16(6000)
@@ -77,7 +77,7 @@ try:
                 oled.text("Daytime", 15, 32)
                 oled.show()
                 utime.sleep(0.5)
-                neo.pixels_fill(BLACK)
+                neo.pixels_fill(NEO_BLACK)
                 neo.pixels_show()
 
 
@@ -91,17 +91,17 @@ try:
                 day_time = False
                 clear_oled(oled)
                 oled.text("Nighttime", 15, 32)
-                neo.pixels_fill(BLACK)
+                neo.pixels_fill(NEO_BLACK)
                 neo.pixels_show()
 
-                neo.pixels_fill(BLACK)
+                neo.pixels_fill(NEO_BLACK)
                 neo.pixels_show()
         clear_oled(oled)
 
 except KeyboardInterrupt:
     buzzer.duty_u16(0)
     clear_oled(oled)
-    neo.pixels_fill(BLACK)
+    neo.pixels_fill(NEO_BLACK)
     neo.pixels_show()
 
 

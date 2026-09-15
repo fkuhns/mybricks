@@ -28,5 +28,6 @@ try:
 
 except KeyboardInterrupt:
 	motor.dc(2, 0, 0)
-	print("Keyboard interrupt received, turning off cooler")
-
+	print("Keyboard interrupt received")
+except Exception as e:
+     print("Program terminating with e: ", e)

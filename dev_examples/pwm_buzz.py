@@ -2,7 +2,7 @@ from machine import Pin, PWM
 from utime import sleep # sleep
 
 # Buzzer GPIO Pin number
-BUZZ_PIN=20
+BUZZ_PIN = 20
 
 
 # Associate a PWM controller to the pin attached to the buzzer
