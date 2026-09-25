@@ -24,6 +24,10 @@ i2c  = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
 
 try:
     oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
+    wire   = Pin(GEN_SENSOR_PIN, Pin.IN) 
+    led    = Pin(LED_PIN,  Pin.OUT)
+    buzzer = PWM(Pin(BUZZ_PIN, Pin.OUT))
+    button = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
 except KeyboardInterrupt:
     print("Keyboard interrupt received during initialization")
     sys.exit()
@@ -31,30 +35,20 @@ except Exception as e:
     print("Program terminating with e during initialization: ", e)
     sys.exit()
 
-wire   = Pin(GEN_SENSOR_PIN, Pin.OUT) 
-led    = Pin(LED_PIN,  Pin.OUT)
-#buzzer = Pin(BUZZ_PIN, Pin.OUT)
-buzzer= PWM(Pin(BUZZ_PIN, Pin.OUT))
-button = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
 
 endtime = 0
 
 def reset():
-    global endtime, wire, led, buzzer, oled
+    global endtime, led, buzzer, oled
     endtime = 0
-    # wire.low()
-    # led.low()
-    # buzzer.low()
-    # oled.fill(0)
-    # oled.show()
+    led.low()
+    buzzer.duty_u16(0)
+    oled.fill(0)
+    oled.show()
 
-endtime = 0
-wire.low()
-led.low()
+reset()
 
 buzzer.freq(1000)
-oled.fill(0)
-oled.show()
 
 try:
     while True:
@@ -79,7 +73,6 @@ try:
         oled.text("STARTED",25,45)
         oled.show()
 
-        wire.high()
         timer_start = ticks_ms()
 
         while wire.value() == 1:
@@ -97,7 +90,6 @@ try:
 
         led.high()
         buzzer.duty_u16(5000)
-        #buzzer.high()
 
         sleep(5)
         buzzer.duty_u16(0)
@@ -106,5 +98,4 @@ except KeyboardInterrupt:
 	reset()
 	print("Keyboard interrupt received")
 except Exception as e:
-     reset()
      print("Program terminating with e: ", e)

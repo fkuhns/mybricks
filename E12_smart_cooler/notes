@@ -1,4 +1,4 @@
-pythonimport time
+import time
 from machine import I2C, Pin
 
 # Initialize I2C0 on default PicoBricks V2 pins
