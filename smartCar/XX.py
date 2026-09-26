@@ -6,31 +6,6 @@ from ssd1306 import SSD1306_I2C
 import sys
 
 
-#############################################################################
-# I2C
-#############################################################################
-I2C_ID       = 0
-I2C_SDA_PIN  = 4
-I2C_SCL_PIN  = 5
-I2C_MAX_TRIES = 3
-
-def reset_i2c_env():
-    init_i2c_env()
-
-def init_i2c_env():
-    global oled, motor, i2c
-    i2c  = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
-    sleep_ms(100)
-
-    oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
-    oled_init_buf()
-    sleep_ms(100)
-
-    # Motor controller is address 0x22, its hard coded in the MotorDriver class.
-    motor = MotorDriver(i2c)
-    sleep_ms(100)
-    stop_motors()
-    sleep_ms(100)
 
 #############################################################################
 # IR
