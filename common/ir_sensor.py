@@ -21,11 +21,10 @@
 # Copyright Peter Hinch 2020-2022 Released under the MIT license
 #############################################################################
 
-from machine import Timer, Pin, enable_irq, disable_irq 
+from machine import Timer, Pin
 from array import array
 from utime import ticks_us
 from utime import ticks_us, ticks_diff
-from micropython import schedule
 
 # from micropython import alloc_emergency_exception_buf
 # alloc_emergency_exception_buf(100)
