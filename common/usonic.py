@@ -62,19 +62,12 @@ class UltrasonicSensor:
         if duration < 0:
             raise UltraSonicTimeout("Ultrasonic timeout waiting for echo")
 
-        # # alternative
-        # while self.echo.value() == 0:
-        #     start = utime.ticks_us()
-        # while self.echo.value() == 1:
-        #     stop = utime.ticks_us()
-        # duration = utime.ticks_diff(stop, start)
-
-        distance = (duration / 2) * US_SPEED_IPUS # duration in us, self.cf
-        utime.sleep(0.1) # FIXME: do I need this sleep
+        # Calculate distance in inches.
+        distance = (duration / 2) * US_SPEED_IPUS
+        # utime.sleep(0.1) # FIXME: do I need this sleep
 
         if _DEBUG:
-            print(duration, "us, ", distance,"in")
+            print(duration, "us, ", distance, "in")
         
-        # Calculate distance in inches.
         return distance
     

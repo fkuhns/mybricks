@@ -1,5 +1,5 @@
 from machine import Pin, I2C, ADC, PWM
-from picobricks import SSD1306_I2C
+from ssd1306 import SSD1306_I2C
 import utime
 from picobricks import WS2812
 

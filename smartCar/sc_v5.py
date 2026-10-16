@@ -4,6 +4,10 @@ from ir_sensor import NEC_8, IR_RX
 from utime import sleep_ms, sleep_us, ticks_ms, ticks_diff, ticks_us
 from ssd1306 import SSD1306_I2C
 from usonic import UltrasonicSensor, UltraSonicTimeout, US_MAX_DIST
+from buzzer import Buzzer
+
+MODE_DIST = const(1)  # bin 0001
+MODE_IR   = const(2)  # bin 0010
 
 I2C0_ID       = 0
 I2C0_SDA_PIN  = 4
@@ -30,7 +34,9 @@ class MyApp():
         self._init_ir_env()
         self.sonic = UltrasonicSensor()
         self.min_change = DIST_MIN_CHANGE
-        self.last_dist = -1
+        self.last_dist  = -1
+        self.last_ticks =  0
+        self.buzzer = Buzzer(MyApp.DEBUG)
         if MyApp.DEBUG:
             print("MyApp: Ultrasonic up")
 
@@ -162,7 +168,7 @@ class MyApp():
             if MyApp.DEBUG:
                 print("*** IR Error: Unknown{}".format(err))
 
-    def process_ir_cmd(self, cmd):
+    def process_ir(self, cmd):
         try:
             if   cmd == IR_RX.number_up:
                 if MyApp.DEBUG:
@@ -208,7 +214,7 @@ class MyApp():
                 print("\t** IR cmd, I2C exception, Motor, reset I2C: ", e)
             self.reset_i2c(I2C0_ID)
 
-    def process_ir_rx(self):
+    def run_ir(self):
         # Called only if ir_rx is true, which means an IR message has been received and is ready to be processed.
         if not self._ir_rx:
             return
@@ -221,7 +227,7 @@ class MyApp():
         self._ir_cmd = 0
 
         try:
-            self.process_ir_cmd(code)
+            self.process_ir(code)
             self.display()
         except I2CException as e:
             if MyApp.DEBUG:
@@ -231,6 +237,7 @@ class MyApp():
                 print("** IR RX, OS error exception, ignoring: ", e)       
 
     def process_dist(self):
+        dist = 0.0
         try:
             dist = self.sonic.get_distance() # distance in inches
         except UltraSonicTimeout:
@@ -243,20 +250,43 @@ class MyApp():
         if abs(dist - self.last_dist) < self.min_change:
             return dist
 
-        if dist >= 12.0:
-            ft = dist // 12
-            inch = dist % 12
-            print("Distance {:.2f} / {} ft {:.2f} inches".format(dist, ft, inch))
-        else:
-            print("Distance {:.2f} in".format(dist))
+        # if dist >= 12.0:
+        #     ft = dist // 12
+        #     inch = dist % 12
+        #     print("Distance {:.2f} / {} ft {:.2f} inches".format(dist, ft, inch))
+        # else:
+        #     print("Distance {:.2f} in".format(dist))
+        if self.DEBUG:
+            print("Distance: %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
         self.last_dist = dist
-        self._oled.update_row2("Dist: %.2f" % dist)
+        self._oled.update_row2("%.2f\' %.2f\"" % (dist // 12, dist % 12))
         self._oled.show()
 
         return dist
 
+    def run_dist(self): 
+        try:
+            # Get distance
+            t = ticks_ms()
+            if ticks_diff(t, self.last_ticks) >= 1000:
+                self.last_ticks = t
+                dist = self.process_dist()
+                if dist < 12:
+                    self._motors.backward()
+                    self.buzzer.on()
+                elif dist <= 24.0:
+                    self._motors.stop_motors()
+                    self.buzzer.off()
+                else: # > 2'
+                    self._motors.forward()
+                    self.buzzer.off()
+        except Exception as e:
+            print("FIXME RUN: dist exception: ", e)
+            self.shutdown()
+            raise e
+        
     # ########## App ##########
-    def run(self):
+    def run(self, mode):
         self.min_change = 1 # inch
         self.sonic.tout_us = 1_000_000
 
@@ -264,41 +294,20 @@ class MyApp():
             print("MyApp.run() ...")
             print("tout: ", self.sonic.tout_us)
 
-        last = 0
-        dist = 0.0
+        last_ticks = 0
         while True:
             try:
-                # Get distance
-                t = ticks_ms()
-                if ticks_diff(t, last) >= 1000:
-                    last = t
-                    dist = self.process_dist()
-                    if dist < 12:
-                        self._motors.backward()
-                        continue
-                    elif dist <= 24.0:
-                        self._motors.stop_motors()
-                        continue
-                    else:
-                        self._motors.forward()
-            except Exception as e:
-                print("FIXME RUN: dist exception: ", e)
-                self.shutdown()
-                raise e
+                if mode & MODE_DIST:
+                    self.run_dist()
 
-            # Get IR commands
-            try:
-                self.process_ir_rx()
-            except KeyboardInterrupt as e:
-                if MyApp.DEBUG:
-                    print("** MyApp run, Keyboard interrupt ... exiting: ", e)
-                self.shutdown()
-                raise e
-            except Exception as e:
-                if MyApp.DEBUG:
-                    print("** Caught an unexpected exception: ", e)
-                self.shutdown()
-                raise e
+                if mode & MODE_IR:
+                    self.run_ir()
+
+            except KeyboardInterrupt:
+                print("Keyboard interrupt ... exiting")
+                raise
+    
+
 
     def shutdown(self):
         self._motors.stop_motors()
@@ -457,7 +466,10 @@ def main():
     # check_motors()
     # sys.exit(1)
     try:
-        myApp.run()
+        myApp.run(MODE_DIST)
+    except KeyboardInterrupt:
+        print("Keyboard interrupt ... resetting")
+        reset()
     except Exception as e:
         print("@@ Caught top level exception (main), resetting board: ", e)
         myApp.shutdown()
