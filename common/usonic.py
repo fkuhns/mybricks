@@ -17,7 +17,15 @@ import time, utime
 
 US_TRIGGER_PIN =   15  # GPIO pin for trigger
 US_ECHO_PIN    =   14  # GPIO pin for echo
-US_DEF_TOUT    = 3500 # usec, ~ 4'
+
+US_SPEED_IPUS  = 0.01359876  # Inches per microsecond
+US_MAX_DIST    = const(96)   # 4 feet
+#US_DEF_TOUT    = const(3530) # US_MAX_DIST / US_SPEED_IPUS
+
+_DEBUG = const(0)
+
+class UltraSonicTimeout(Exception):
+    pass
 
 class UltrasonicSensor:
     def __init__(self, trigger_pin=US_TRIGGER_PIN, echo_pin=US_ECHO_PIN):
@@ -26,12 +34,12 @@ class UltrasonicSensor:
         # At 75 degrees F, the speed of sound is 1,133.23 fps
         # 1,133.23 ft/sec * 12 in/ft * 1 sec/1,000,000 us = 0.01359876 in/us
         # = 0.00113323 ft/usec, or 882.4 usec/ft, 2,647 us for 3 ft.
-        self.cf = 0.01359876  # Speed of sound in inches per microsecond at 75 degrees F
+        #self.cf = 0.01359876  # Speed of sound in inches per microsecond at 75 degrees F
         # 5ms => 5.67 ft, 3ms => 3.4 ft, 
-        # 4ft => 3.53 ms ~ 3.5ms, 2.6ms ~ 3ft
-        # 2.6ms ~ 3'
-        self.tout_us = US_DEF_TOUT
-        self.verbose = True
+        # 8' => 7.06ms (7059 us)
+        # 4' => 3.53ms (3530 us)
+        # 3' => 2.6 ms (2647 us)
+        self.tout_us = int(round(US_MAX_DIST / US_SPEED_IPUS))
 
     def get_distance(self):
         """
@@ -50,9 +58,9 @@ class UltrasonicSensor:
         # >= 0 is the time in microseconds for the echo to return
         # -2 timed out while waiting for the pin to transition into requested level
         # -1 timed out during the measurement
-        duration = time_pulse_us(self.echo, 1, 30000) 
+        duration = time_pulse_us(self.echo, 1, self.tout_us) 
         if duration < 0:
-            raise RuntimeError("Ultrasonic timeout waiting for echo")
+            raise UltraSonicTimeout("Ultrasonic timeout waiting for echo")
 
         # # alternative
         # while self.echo.value() == 0:
@@ -61,10 +69,10 @@ class UltrasonicSensor:
         #     stop = utime.ticks_us()
         # duration = utime.ticks_diff(stop, start)
 
-        distance = (duration / 2) * self.cf
+        distance = (duration / 2) * US_SPEED_IPUS # duration in us, self.cf
         utime.sleep(0.1) # FIXME: do I need this sleep
 
-        if self.verbose:
+        if _DEBUG:
             print(duration, "us, ", distance,"in")
         
         # Calculate distance in inches.

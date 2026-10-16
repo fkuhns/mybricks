@@ -29,6 +29,8 @@ from utime import ticks_us, ticks_diff
 # from micropython import alloc_emergency_exception_buf
 # alloc_emergency_exception_buf(100)
 
+_DEBUG = const(1)
+
 class IR_RX:
     Timer_id = -1  # Software timer but enable override
     # Result/error codes
@@ -62,41 +64,43 @@ class IR_RX:
     number_sharp = 0x0d
 
     def __init__(self, pin, extended, callback, *args):  # Optional args for callback
+        self._errf      = lambda _: None
+
         self._pin       = pin 
 
         self._callback  = callback
         self._args      = args
         
-        self._errf      = lambda _: None
-        
-
         self._nedges    = 68 # Block lasts <= 80ms (extended mode) and has 68 edges
+        self._tblock    = 80 # timeout to ensure a complete message has been received
         self._edge      = 0
         self._times     = array("i", (0 for _ in range(self._nedges + 1)))  # +1 for overrun
+        self._timer     = Timer(self.Timer_id)
+        self.cb         = self.decode # Timer callback to verify received message
 
         self._extended  = extended # True for 16, False for 8
         self._addr      = 0
         self._leader    = 4000  # 4.5ms for Samsung else 9ms
-
-        self.cb      = self.decode
-        self._tblock = 80
-        self.verbose = False
-        self.tim     = Timer(self.Timer_id)
-
+        # Pin interrupt handler for both the leading and trailing edges
         self._pin.irq(handler=self._cb_pin, trigger=(Pin.IRQ_FALLING | Pin.IRQ_RISING))
 
     # **** Pin interrupt. Save time of each edge for later decode.
     def _cb_pin(self, line):
         t = ticks_us()
-        # On overrun ignore pulses until software timer times out
-        if self._edge <= self._nedges:  # Allow 1 extra pulse to record overrun
-            if not self._edge:  # First edge received
-                self.tim.init(period=self._tblock, mode=Timer.ONE_SHOT, callback=self.cb)
+
+        if self._edge <= self._nedges: 
+            if not self._edge:
+                # if first edge, set timer for message handler
+                self._timer.init(period=self._tblock, mode=Timer.ONE_SHOT, callback=self.cb)
+
             self._times[self._edge] = t
             self._edge += 1
-            # FIXME: Prcobricks.py adds. 
-            # if self._edge > 68 :
-            #     self._edge = 0
+        
+        # FIXME: Prcobricks.py adds ...
+        if self._edge > 68 :
+            if _DEBUG:
+                print("******** _cb_pin: edge > 68, set to 0 *********")
+            self._edge = 0
 
     def do_callback(self, cmd, addr, ext, thresh=0):
         if cmd >= thresh:
@@ -109,13 +113,14 @@ class IR_RX:
 
     def close(self):
         self._pin.irq(handler=None)
-        self.tim.deinit()
+        self._timer.deinit()
 
     def decode(self, e):
         try:
             val = 0
             cmd = 0
             addr = 0
+
             if self._edge > 68:
                 raise RuntimeError(self.OVERRUN)
 
@@ -123,7 +128,7 @@ class IR_RX:
             # followed by a 4.5ms space for normal data or 2.25ms for a repeat
             # code.
             width = ticks_diff(self._times[1], self._times[0])
-            if width < self._leader:
+            if width < self._leader: # all messages start with a 9ms leader pulse
                 raise RuntimeError(self.BADSTART)
 
             width = ticks_diff(self._times[2], self._times[1]) # should be 4500us
@@ -176,7 +181,8 @@ class IR_RX:
 
         # Reset edge and run user callback 
         self._edge = 0
-        # print("*** DECODE: VAL = 0x{:08x} ADDR = 0x{:04x} CMD = 0x{:02x}".format(val, addr, cmd))
+        if _DEBUG > 1:
+            print("*** DECODE: VAL = 0x{:08x} ADDR = 0x{:04x} CMD = 0x{:02x}".format(val, addr, cmd))
         self.do_callback(cmd, addr, 0, self.REPEAT)
 
 class NEC_8(IR_RX):

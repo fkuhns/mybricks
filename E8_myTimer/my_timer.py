@@ -1,5 +1,5 @@
 from machine import Pin, Timer, I2C, ADC
-from picobricks import SSD1306_I2C
+from ssd1306 import SSD1306_I2C
 import utime
 
 # I2C Constants

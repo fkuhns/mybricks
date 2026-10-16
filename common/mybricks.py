@@ -9,16 +9,29 @@
 GEN_SENSOR_PIN   =  1
 
 IR_PIN = 0
-I2C_SDA_PIN =  4
-I2C_SCL_PIN =  5
-RGB_LED_PIN =  6
-LED_PIN     =  7
-BUTT_PIN    = 10
-US_TRIGGER_PIN = 15 # US = Ultrasonic
+I2C_SDA_PIN    =  4
+I2C_SCL_PIN    =  5
+
+I2C1_ID       = 1
+I2C1_SDA_PIN  = 2
+I2C1_SCL_PIN  = 3
+
+I2C0_ID       = 0
+I2C0_SDA_PIN  = 4
+I2C0_SCL_PIN  = 5
+
+RGB_LED_PIN    =  6
+LED_PIN        =  7
+
+BUTT_PIN       = 10
+
 US_ECHO_PIN    = 14 # US = Ultrasonic
-BUZZ_PIN    = 20
-POT_PIN     = 26
-LDR_PIN     = 27
+US_TRIGGER_PIN = 15 # US = Ultrasonic
+
+BUZZ_PIN       = 20
+
+POT_PIN        = 26
+LDR_PIN        = 27
 
 #############################################################################
 # Button debounce

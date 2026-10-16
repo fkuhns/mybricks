@@ -4,6 +4,7 @@ from ir_sensor import NEC_8, IR_RX
 from utime import sleep_ms, sleep_us
 from ssd1306 import SSD1306_I2C
 import sys
+from array import array
 
 I2C0_ID       = 0
 I2C0_SDA_PIN  = 4
@@ -26,47 +27,62 @@ class I2CException(Exception):
     pass
 
 class MyApp():
+    _DEBUG = const(0)
+
     def __init__(self):
         self._init_i2c_env()
         self._init_ir_env()
         
     def _init_ir_env(self):
-        self.verbose = True
+        MyApp._DEBUG = True
         self._ir_cmd  = 0x00
         self._ir_rx   = False
-        self._ir_ctrl = NEC_8(Pin(IR_PIN, Pin.IN), self.ir_callback)
+        self._ir_ctrl = NEC_8(Pin(IR_PIN, Pin.IN), self.ir_callback) # type: ignore
         self._ir_ctrl._errf = self.ir_err
 
     def _init_i2c_env(self):
-        # I2C0 bus for devices other than the motor
-        self.i2c0  = I2C(I2C0_ID, scl=Pin(I2C0_SCL_PIN), sda=Pin(I2C0_SDA_PIN), freq=400_000)
 
+        # I2C0 bus for devices other than the motor
         # I2C1 bus for the motors (SDA Pin & SCL Pin)
         # 2&3, 6&7, 10&11, 14&15, 18&19, 22&23, 26&27
         # used: 
         #   6/7 (LED), 10 (Button), 14/15 ultrasonic, 18/19 SPI,
         #   23 (SMPS control), 26 (Pot), 27 (LDR)
         # Available: Pins 2 & 3
-    self.i2c1 = I2C(I2C1_ID, scl=Pin(I2C1_SCL_PIN), sda=Pin(I2C1_SDA_PIN), freq=400_000)
+        self.i2c = [
+            I2C(0, scl=Pin(I2C0_SCL_PIN), sda=Pin(I2C0_SDA_PIN), freq=1_000_000),
+            I2C(1, scl=Pin(I2C1_SCL_PIN), sda=Pin(I2C1_SDA_PIN), freq=100_000) ]
 
         sleep_ms(5)        
         
-        self._oled   = OledI2c(self.i2c, "FK Car")
-        self._motors = MotorsI2c(self.i2c)
+        self._oled   = OledI2c(self.i2c[0], "FK Car")
+        self._motors = MotorsI2c(self.i2c[1])
 
-    def reset_i2c_bus(self):
-        # 1. Temporarily configure I2C pins as normal GPIO outputs
-        scl = Pin(I2C0_SCL_PIN, Pin.OUT, value=1)
-        sda = Pin(I2C0_SDA_PIN, Pin.OUT, value=1)
+    def reset_i2c(self, id):
+        # if id == 0:
+        #     try:
+        #         self.i2c0.deinit()
+        #     except: Exception:
+        #         pass
+        scl = None
+        sda = None
         
-        # 2. Toggle SCL 9 times to push the motor controller out of its stuck state
+        if id == 0:
+            scl = Pin(I2C0_SCL_PIN, Pin.OPEN_DRAIN, Pin.PULL_UP, value = 1)
+            sda = Pin(I2C0_SDA_PIN, Pin.OPEN_DRAIN, Pin.PULL_UP, value = 1)
+        else:
+            scl = Pin(I2C1_SCL_PIN, Pin.OPEN_DRAIN, Pin.PULL_UP, value = 1)
+            sda = Pin(I2C1_SDA_PIN, Pin.OPEN_DRAIN, Pin.PULL_UP, value = 1)
+        sleep_us(10)
+
         for _ in range(9):
+            if sda.value():
+                break
             scl.value(0)
             sleep_us(5)
             scl.value(1)
             sleep_us(5)
-            
-        # 3. Manually generate a STOP condition (SDA transitions low to high while SCL is high)
+
         sda.value(0)
         sleep_us(5)
         scl.value(1)
@@ -74,109 +90,118 @@ class MyApp():
         sda.value(1)
         sleep_us(5)
 
-    def reset_i2c_env(self):
-        self.reset_i2c_bus()
-        sleep_ms(5)
-        self._init_i2c_env()
+        if id == 0:
+            self.i2c[0] = I2C(0, scl=Pin(I2C0_SCL_PIN), sda=Pin(I2C0_SDA_PIN), freq=1_000_000)
+            self._oled   = OledI2c(self.i2c[0], "FK Car")
+        else:
+            self.i2c[1] = I2C(1, scl=Pin(I2C1_SCL_PIN), sda=Pin(I2C1_SDA_PIN), freq=100_000)
+            self._motors = MotorsI2c(self.i2c[1])
+
+    def reset_i2c_env(self, id):
+        self.reset_i2c(id)
 
     def ir_callback(self, cmd, addr, _):
         # An IR message has been received, ignore address.
         self._ir_cmd = cmd
         self._ir_rx  = True
-        if self.verbose:
+        if MyApp._DEBUG:
             print('# IR Callback -> Cmd: 0x{:02x} Addr: 0x{:04x}'.format(cmd, addr))
 
     def display(self):
         try:
             self._oled.show()
         except I2CException as e:
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("\t** I2C exception, OLED show, reset I2C: ", e)
-            self.reset_i2c_env()
+            self.reset_i2c(0)
 
     def ir_err(self, err):
         if err == IR_RX.BADSTART:
             self._oled.update_err("Decode: BADSTART")
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: BADSTART ({})".format(err))
         elif err == IR_RX.BADBLOCK:
             self._oled.update_err("Decode: BADBLOCK")
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: BADBLOCK ({})".format(err))
         elif err == IR_RX.BADREP:
             self._oled.update_err("Decode: BADREP")
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: BADREP ({})".format(err))
         elif err == IR_RX.OVERRUN:
             self._oled.update_err("Decode: OVERRUN")
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: OVERRUN ({})".format(err))
         elif err == IR_RX.BADDATA:
             self._oled.update_err("Decode: BADDATA")
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: BADDATA ({})".format(err))
         elif err == IR_RX.BADADDR:
             self._oled.update_err("Decode: BADADDR")
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: BADADDR ({})".format(err))
         else:
             self._oled.update_err("Decode: {}".format(err))
-            if self.verbose:
+            if MyApp._DEBUG:
                 print("*** Decode Error: Unknown{}".format(err))
+
+    def process_cmd(self, cmd):
+        try:
+            if   cmd == IR_RX.number_up:
+                if MyApp._DEBUG:
+                    print("\t# IR Up code received ... moving forward")
+                self._motors.forward()
+                self._oled.update_motor("m1=Fwd, m2=Fwd")
+            elif cmd == IR_RX.number_down:
+                if MyApp._DEBUG:
+                    print("\t# IR Down code received ... moving backward")
+                self._motors.backward()
+                self._oled.update_motor("m1=Bkwd, m2=Bkwd")
+            elif cmd == IR_RX.number_left:
+                if MyApp._DEBUG:
+                    print("\t# IR Left code received ... turning left")
+                self._motors.turn_left()
+                self._oled.update_motor("m1=Bkwd, m2=Fwd")
+            elif cmd == IR_RX.number_right:
+                if MyApp._DEBUG:
+                    print("\t# IR Right code received ... turning right")
+                self._motors.turn_right()
+                self._oled.update_motor("m1=Fwd, m2=Bkwd")
+            elif cmd == IR_RX.number_ok:
+                if MyApp._DEBUG:
+                    print("\t# IR OK code received ... stopping motors")
+                self._motors.stop_motors()
+                self._oled.update_motor("m1=Stop, m2=Stop")
+            elif cmd == IR_RX.REPEAT:
+                if MyApp._DEBUG:
+                    print("\t# IR Repeat code received ... ignoring")
+                self._oled.update_err("IR Repeat code")
+                # Handle repeat code ...
+            elif cmd >= 0:
+                if MyApp._DEBUG:
+                    print('\t* Error: IR cmd not implemented: 0x{:02x}'.format(cmd))
+                self._oled.update_err("IR cmd not Impl")
+            else:
+                if MyApp._DEBUG:
+                    print('\t* Error: IR cmd error: 0x{:02x}'.format(cmd))
+                self._oled.update_err("IR cmd error")
+            
+        except I2CException as e:
+            if MyApp._DEBUG:
+                print("\t** I2C error, Resetting env: ", e)
+            self.reset_i2c(1)
 
     def process_ir(self):
         # Called only if ir_rx is true, which means an IR message has been received and is ready to be processed.
-        if self.verbose:
+        if MyApp._DEBUG:
             print("# IR Processing, ir_rx = {}, ir_cmd = 0x{:02x}".format(self._ir_rx, self._ir_cmd))
 
         self._ir_rx  = False
         code         = self._ir_cmd
         self._ir_cmd = 0
 
-        try:
-            if   code == IR_RX.number_up:
-                if self.verbose:
-                    print("\t# IR Up code received ... moving forward")
-                self._motors.forward()
-                self._oled.update_motor("m1=Fwd, m2=Fwd")
-            elif code == IR_RX.number_down:
-                if self.verbose:
-                    print("\t# IR Down code received ... moving backward")
-                self._motors.backward()
-                self._oled.update_motor("m1=Bkwd, m2=Bkwd")
-            elif code == IR_RX.number_left:
-                if self.verbose:
-                    print("\t# IR Left code received ... turning left")
-                self._motors.turn_left()
-                self._oled.update_motor("m1=Bkwd, m2=Fwd")
-            elif code == IR_RX.number_right:
-                if self.verbose:
-                    print("\t# IR Right code received ... turning right")
-                self._motors.turn_right()
-                self._oled.update_motor("m1=Fwd, m2=Bkwd")
-            elif code == IR_RX.number_ok:
-                if self.verbose:
-                    print("\t# IR OK code received ... stopping motors")
-                self._motors.stop_motors()
-                self._oled.update_motor("m1=Stop, m2=Stop")
-            elif code == IR_RX.REPEAT:
-                if self.verbose:
-                    print("\t# IR Repeat code received ... ignoring")
-                self._oled.update_err("IR Repeat code")
-                # Handle repeat code ...
-            elif code >= 0:
-                if self.verbose:
-                    print('\t* Error: IR cmd not implemented: 0x{:02x}'.format(code))
-                self._oled.update_err("IR cmd not Impl")
-            else:
-                if self.verbose:
-                    print('\t* Error: IR cmd error: 0x{:02x}'.format(code))
-                self._oled.update_err("IR cmd error")
-            self.display()
-        except I2CException as e:
-            if self.verbose:
-                print("\t** I2C error, Resetting env: ", e)
-            self.reset_i2c_env()
+        self.process_cmd(code)
+        self.display()
         
     def run(self):
         while True:
@@ -185,16 +210,16 @@ class MyApp():
                     self.process_ir()
                 #sleep_ms(100)
             except OSError as e:
-                if self.verbose:
+                if MyApp._DEBUG:
                     print("-- Caught an OS error, continuing: ", e)
             except KeyboardInterrupt as e:
-                if self.verbose:
+                if MyApp._DEBUG:
                     print("-- Keyboard interrupt ... exiting: ", e)
                 self._motors.stop_motors()
                 self._oled.clear()
                 sys.exit(0) #return
             except Exception as e:
-                if self.verbose:
+                if MyApp._DEBUG:
                     print("-- Caught an unexpected exception: ", e)
                 self._motors.stop_motors()
                 self._oled.clear()
