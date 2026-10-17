@@ -19,7 +19,7 @@ US_TRIGGER_PIN =   15  # GPIO pin for trigger
 US_ECHO_PIN    =   14  # GPIO pin for echo
 
 US_SPEED_IPUS  = 0.01359876  # Inches per microsecond
-US_MAX_DIST    = const(96)   # 4 feet
+US_MAX_DIST    = 144.00  # 12 feet
 #US_DEF_TOUT    = const(3530) # US_MAX_DIST / US_SPEED_IPUS
 
 _DEBUG = const(0)
@@ -63,7 +63,7 @@ class UltrasonicSensor:
             raise UltraSonicTimeout("Ultrasonic timeout waiting for echo")
 
         # Calculate distance in inches.
-        distance = (duration / 2) * US_SPEED_IPUS
+        distance = (duration / 2.0) * US_SPEED_IPUS
         # utime.sleep(0.1) # FIXME: do I need this sleep
 
         if _DEBUG:

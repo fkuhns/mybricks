@@ -12,43 +12,42 @@ DEBUG = 1
 
 class Buzzer():
     def __init__(self, debug):
-        self.buzz = False
-        self.buzzer = PWM(Pin(BUZZ_PIN, Pin.OUT))
+        self.state   = False # false mean Off, True means On
+        self.buzzing = False # True means the tone is on
+        self.buzzer  = PWM(Pin(BUZZ_PIN, Pin.OUT))
         self.buzzer.freq(500)
-        self.timer = Timer(-1)
-        self.debug = debug
+        self.timer   = Timer(-1)
+        self.DEBUG   = debug
 
     def off(self):
-        if self.buzz == False:
+        if self.state == False:
             return
-        if self.debug:
+        if self.DEBUG:
             print("Buzzer off")
         self.timer.deinit()
-        self.buzz = False
         self.buzzer.duty_u16(0)
+        self.state = False
 
     def on(self):
-        if self.buzz == True:
+        if self.state == True:
             return
-        if self.debug:
+        if self.DEBUG:
             print("Buzzer on")
-        self.buzz = False
-        self.timer.init(mode=Timer.ONE_SHOT, period=500, callback=self.handler)
+        #self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_OFF_TIME_MS, callback=self.handler)
+        self.state   = True
+        self.buzzing = False
+        self.handler(None)
 
     def handler(self, timer):
-        if self.buzz:
-            #print("\tBuzz == True")
+        if self.state == False:
+            return
+        
+        if self.buzzing: # then stop buzzing
             self.buzzer.duty_u16(0)
-            self.buzz = False
+            self.buzzing = False
             self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_OFF_TIME_MS, callback=self.handler)
-        else:
-            #print("\tBuzz == False")
+        else:  # start buzzing
             self.buzzer.duty_u16(BUZZ_DUTY_CYCLE)
-            self.buzz = True
+            self.buzzing = True
             self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_ON_TIME_MS, callback=self.handler)
 
-# buz = Buzzer()
-# buz.on()
-# sleep(5)
-# buz.off()
-# sleep(1)

@@ -1,10 +1,10 @@
 from machine import Pin, I2C, reset # enable_irq, disable_irq
-from picobricks import MotorDriver
 from ir_sensor import NEC_8, IR_RX
-from utime import sleep_ms, sleep_us, ticks_ms, ticks_diff, ticks_us
-from ssd1306 import SSD1306_I2C
-from usonic import UltrasonicSensor, UltraSonicTimeout, US_MAX_DIST
+from utime import sleep_ms, sleep_us, ticks_ms, ticks_diff #, ticks_us
+#from ssd1306 import SSD1306_I2C
+from usonic import UltrasonicSensor, UltraSonicTimeout
 from buzzer import Buzzer
+from i2c_dev import I2cCtl, MotorsI2c, OledI2c, I2CException, MOTOR_STATE_BKWD, MOTOR_STATE_FWD, MOTOR_STATE_LEFT, MOTOR_STATE_RIGHT, MOTOR_STATE_STOP, MOTOR_STATE_INIT, MOTOR_STATE_UNK
 
 MODE_DIST = const(1)  # bin 0001
 MODE_IR   = const(2)  # bin 0010
@@ -17,20 +17,18 @@ I2C1_ID       = 1
 I2C1_SDA_PIN  = 2
 I2C1_SCL_PIN  = 3
 
-I2C_MAX_TRIES = 3
-
 IR_PIN = 0
 
 DIST_MIN_CHANGE = 1 # inches
 
-class I2CException(Exception):
+class AppException(Exception):
     pass
 
 class MyApp():
     DEBUG = 1
 
     def __init__(self):
-        self._init_i2c_env()
+        self.init_i2c_env()
         self._init_ir_env()
         self.sonic = UltrasonicSensor()
         self.min_change = DIST_MIN_CHANGE
@@ -41,88 +39,35 @@ class MyApp():
             print("MyApp: Ultrasonic up")
 
     # ########## I2C ##########
-    def _init_i2c_env(self):
-        # I2C0 bus for devices other than the motor
-        # I2C1 bus for the motors (SDA Pin & SCL Pin)
-        # 2&3, 6&7, 10&11, 14&15, 18&19, 22&23, 26&27
-        # used: 
-        #   6/7 (LED), 10 (Button), 14/15 ultrasonic, 18/19 SPI,
-        #   23 (SMPS control), 26 (Pot), 27 (LDR)
-        # Available: Pins 2 & 3
-        self.i2c = [{"OBJ": None, "SCL": I2C0_SCL_PIN, "SDA": I2C0_SDA_PIN, "FREQ": 400_000}, # I2C0_ID
-                    {"OBJ": None, "SCL": I2C1_SCL_PIN, "SDA": I2C1_SDA_PIN, "FREQ":   100_000}] # I2C1_ID
+    def init_i2c_env(self):
+        self.i2ctl = I2cCtl()
 
-        self.i2c[I2C0_ID]["OBJ"] = I2C(I2C0_ID, 
-                                       scl  = Pin(self.i2c[I2C0_ID]["SCL"]), 
-                                       sda  = Pin(self.i2c[I2C0_ID]["SDA"]), 
-                                       freq = self.i2c[I2C0_ID]["FREQ"])
-
-        # self.i2c[I2C1_ID]["OBJ"] = I2C(I2C1_ID, 
-        #                                scl  = Pin(self.i2c[I2C1_ID]["SCL"]), 
-        #                                sda  = Pin(self.i2c[I2C1_ID]["SDA"]), 
-        #                                freq = self.i2c[I2C1_ID]["FREQ"])
-        
-        sleep_ms(5)        
-
-        self._oled   = OledI2c(self.i2c[I2C0_ID]["OBJ"], "FK Car")
-        self._motors = MotorsI2c(self.i2c[I2C0_ID]["OBJ"])
+        self.oled   = OledI2c(self.i2ctl.i2c[I2C0_ID]["OBJ"], "FK Car")
+        self.motors = MotorsI2c(self.i2ctl.i2c[I2C0_ID]["OBJ"])
 
         if MyApp.DEBUG:
-            print("MyAPP: I2C 0 ", self.i2c[I2C0_ID]["OBJ"])
-            print("MyAPP: I2C 1 ", self.i2c[I2C1_ID]["OBJ"])
-            print("MyAPP: OLED ",  self._oled.octrl)
-            print("MyAPP: Motors ",self._motors._mctrl)
+            print("MyAPP: OLED ",  self.oled.octrl)
+            print("MyAPP: Motors ",self.motors._mctrl)
 
     def reset_i2c(self, id):
-        # if id == 0:
-        #     try:
-        #         self.i2c0.deinit()
-        #     except: Exception:
-        #         pass
-        if MyApp.DEBUG:
-            print("** MyAPP: Resetting I2C bus ", id)
-
-        scl = Pin(self.i2c[id]["SCL"], Pin.OPEN_DRAIN, Pin.PULL_UP, value = 1)
-        sda = Pin(self.i2c[id]["SDA"], Pin.OPEN_DRAIN, Pin.PULL_UP, value = 1)
-        
-        sleep_us(10)
-
-        for _ in range(9):
-            if sda.value():
-                break
-            scl.value(0)
-            sleep_us(5)
-            scl.value(1)
-            sleep_us(5)
-
-        sda.value(0)
-        sleep_us(5)
-        scl.value(1)
-        sleep_us(5)
-        sda.value(1)
-        sleep_us(5)
-
-        self.i2c[id]["OBJ"] = I2C(id, 
-                                  scl =Pin(self.i2c[id]["SCL"]), 
-                                  sda =Pin(self.i2c[id]["SDA"]), 
-                                  freq=self.i2c[id]["FREQ"])
-
-        if MyApp.DEBUG:
-            print("** MyApp: New bus ", self.i2c[id]["OBJ"])
-
-        return self.i2c[id]["OBJ"]
+        self.i2ctl.reset_i2c(id)
+        # FIXME: fix assumption that only one bus is used!
+        if id == I2C0_ID:
+            self.oled   = OledI2c(self.i2ctl.i2c[I2C0_ID]["OBJ"], "FK Car")
+            self.motors = MotorsI2c(self.i2ctl.i2c[I2C0_ID]["OBJ"])
+        else:
+            raise AppException("reset_i2c id %d not used" % id)
 
     # ########## OLED ##########
     def display(self):
         try:
-            self._oled.show()
+            self.oled.show()
         except I2CException as e:
             if MyApp.DEBUG:
                 print("\tDisplay: I2C exception, OLED show, reset I2C: ", e)
             self.reset_i2c(I2C0_ID)
 
     # ########## IR ##########
-
     def _init_ir_env(self):
         self._ir_cmd  = 0x00
         self._ir_rx   = False
@@ -140,31 +85,31 @@ class MyApp():
 
     def ir_err(self, err):
         if err == IR_RX.BADSTART:
-            self._oled.update_row3("IR: BADSTART")
+            self.oled.update_row3("IR: BADSTART")
             if MyApp.DEBUG:
                 print("*** IR Error: BADSTART ({})".format(err))
         elif err == IR_RX.BADBLOCK:
-            self._oled.update_row3("IR: BADBLOCK")
+            self.oled.update_row3("IR: BADBLOCK")
             if MyApp.DEBUG:
                 print("*** IR Error: BADBLOCK ({})".format(err))
         elif err == IR_RX.BADREP:
-            self._oled.update_row3("IR: BADREP")
+            self.oled.update_row3("IR: BADREP")
             if MyApp.DEBUG:
                 print("*** IR Error: BADREP ({})".format(err))
         elif err == IR_RX.OVERRUN:
-            self._oled.update_row3("IR: OVERRUN")
+            self.oled.update_row3("IR: OVERRUN")
             if MyApp.DEBUG:
                 print("*** IR Error: OVERRUN ({})".format(err))
         elif err == IR_RX.BADDATA:
-            self._oled.update_row3("IR: BADDATA")
+            self.oled.update_row3("IR: BADDATA")
             if MyApp.DEBUG:
                 print("*** IR Error: BADDATA ({})".format(err))
         elif err == IR_RX.BADADDR:
-            self._oled.update_row3("IR: BADADDR")
+            self.oled.update_row3("IR: BADADDR")
             if MyApp.DEBUG:
                 print("*** IR Error: BADADDR ({})".format(err))
         else:
-            self._oled.update_row3("IR: {}".format(err))
+            self.oled.update_row3("IR: {}".format(err))
             if MyApp.DEBUG:
                 print("*** IR Error: Unknown{}".format(err))
 
@@ -173,41 +118,41 @@ class MyApp():
             if   cmd == IR_RX.number_up:
                 if MyApp.DEBUG:
                     print("\t# IR cmd Up ... moving forward")
-                self._motors.forward()
-                # self._oled.update_row2("m1=Fwd, m2=Fwd")
+                self.motors.forward()
+                # self.oled.update_row2("m1=Fwd, m2=Fwd")
             elif cmd == IR_RX.number_down:
                 if MyApp.DEBUG:
                     print("\t# IR cmd Down ... moving backward")
-                self._motors.backward()
-                # self._oled.update_row2("m1=Bkwd, m2=Bkwd")
+                self.motors.backward()
+                # self.oled.update_row2("m1=Bkwd, m2=Bkwd")
             elif cmd == IR_RX.number_left:
                 if MyApp.DEBUG:
                     print("\t# IR cmd Left ... turning left")
-                self._motors.turn_left()
-                # self._oled.update_row2("m1=Bkwd, m2=Fwd")
+                self.motors.turn_left()
+                # self.oled.update_row2("m1=Bkwd, m2=Fwd")
             elif cmd == IR_RX.number_right:
                 if MyApp.DEBUG:
                     print("\t# IR cmd Right ... turning right")
-                self._motors.turn_right()
-                # self._oled.update_row2("m1=Fwd, m2=Bkwd")
+                self.motors.turn_right()
+                # self.oled.update_row2("m1=Fwd, m2=Bkwd")
             elif cmd == IR_RX.number_ok:
                 if MyApp.DEBUG:
                     print("\t# IR cmd OK ... stopping motors")
-                self._motors.stop_motors()
-                # self._oled.update_row2("m1=Stop, m2=Stop")
+                self.motors.stop_motors()
+                # self.oled.update_row2("m1=Stop, m2=Stop")
             elif cmd == IR_RX.REPEAT:
                 if MyApp.DEBUG:
                     print("\t# IR cmd Repeat ... ignoring")
-                self._oled.update_row3("IR Repeat code")
+                self.oled.update_row3("IR Repeat code")
                 # Handle repeat code ...
             elif cmd >= 0:
                 if MyApp.DEBUG:
                     print('\t* IR cmd Err: Not implemented: 0x{:02x}'.format(cmd))
-                self._oled.update_row3("IR cmd not Impl")
+                self.oled.update_row3("IR cmd not Impl")
             else:
                 if MyApp.DEBUG:
                     print('\t* IR cmd Err: Unrecognized error code: 0x{:02x}'.format(cmd))
-                self._oled.update_row3("IR cmd error")
+                self.oled.update_row3("IR cmd error")
             
         except I2CException as e:
             if MyApp.DEBUG:
@@ -229,38 +174,52 @@ class MyApp():
         try:
             self.process_ir(code)
             self.display()
-        except I2CException as e:
+        # I2CExceptions are handled in process_ir and display
+        except AppException as e:
             if MyApp.DEBUG:
-                print("** IR RX, I2C Exception ignoring: ", e)
+                print("run_ir AppException: ", e)
+            raise e
         except OSError as e:
             if MyApp.DEBUG:
-                print("** IR RX, OS error exception, ignoring: ", e)       
+                print("** run_ir: IR RX, OS error exception, ignoring: ", e)       
 
+    # ########## Distance ##########
     def process_dist(self):
+        " No exceptions thrown"
         dist = 0.0
         try:
             dist = self.sonic.get_distance() # distance in inches
         except UltraSonicTimeout:
-            print("Dist: echo not received in timeout")
+            if self.DEBUG:
+                print("process_dist: echo not received in timeout")
+            return -1.0
+        except OSError as e:
+            if self.DEBUG:
+                print("process_dist: OSError exception: ", e)
             return -1.0
         except Exception as e:
-            print("Dist: Unexpected exception from ultrasonic get_distance(): ", e)
+            if self.DEBUG:
+                print("process_dist: Unexpected exception from ultrasonic get_distance(): ", e)
             return -1.0
 
         if abs(dist - self.last_dist) < self.min_change:
             return dist
 
-        # if dist >= 12.0:
-        #     ft = dist // 12
-        #     inch = dist % 12
-        #     print("Distance {:.2f} / {} ft {:.2f} inches".format(dist, ft, inch))
-        # else:
-        #     print("Distance {:.2f} in".format(dist))
         if self.DEBUG:
-            print("Distance: %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
+            print("process_dist dist = %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
+
         self.last_dist = dist
-        self._oled.update_row2("%.2f\' %.2f\"" % (dist // 12, dist % 12))
-        self._oled.show()
+        self.oled.update_row2("%.2f\' %.2f\"" % (dist // 12, dist % 12))
+
+        try:
+            self.oled.show()
+        except I2CException as e:
+            if self.DEBUG:
+                print("process_dist: oled.show I2CException, reset i2c bus: ", e)
+            self.reset_i2c(I2C0_ID)
+        except Exception as e:
+            if self.DEBUG:
+                print("process_dist: ignoring oled.show exception: ", e)
 
         return dist
 
@@ -269,21 +228,48 @@ class MyApp():
             # Get distance
             t = ticks_ms()
             if ticks_diff(t, self.last_ticks) >= 1000:
+                print("time diff between runs: ", ticks_diff(t, self.last_ticks))
                 self.last_ticks = t
-                dist = self.process_dist()
-                if dist < 12:
-                    self._motors.backward()
-                    self.buzzer.on()
+                dist = self.process_dist() # No exceptions
+                if dist < 0:
+                    # FIXME: Assume this means the distance is > max dist.
+                    self.buzzer.off()
+                    self.motors.forward()
+                    if self.DEBUG:
+                        print("run_dist: assume means distance > max dist")
+                elif dist < 12.0:
+                    if self.motors.state != MOTOR_STATE_BKWD:
+                        print("d < 12: ", self.motors.state)
+                        self.motors.backward()
+                        self.buzzer.on()
+                        print("\t ", self.motors.state)
                 elif dist <= 24.0:
-                    self._motors.stop_motors()
-                    self.buzzer.off()
+                    #sleep_ms(500)
+                    if self.motors.state != MOTOR_STATE_LEFT:
+                        print("d < 24: ", self.motors.state)
+                        self.buzzer.off()
+                        self.motors.turn_left()
+                        print("\t 1) ", self.motors.state)
+                        sleep_ms(500)
+                        self.motors.stop_motors()
+                        print("\t 2) ", self.motors.state)
                 else: # > 2'
-                    self._motors.forward()
-                    self.buzzer.off()
+                    if self.motors.state != MOTOR_STATE_FWD:
+                        print("d > 2ft: ", self.motors.state)
+                        self.buzzer.off()
+                        self.motors.forward()
+                        print("\t ", self.motors.state)
+        except I2CException as e:
+            if MyApp.DEBUG:
+                print("run_dist I2CException: ", e)
+            self.reset_i2c(I2C0_ID)
+        except AppException as e:
+            if MyApp.DEBUG:
+                print("run_dist AppException: ", e)
         except Exception as e:
             print("FIXME RUN: dist exception: ", e)
-            self.shutdown()
-            raise e
+            #self.shutdown()
+            #raise e
         
     # ########## App ##########
     def run(self, mode):
@@ -294,7 +280,6 @@ class MyApp():
             print("MyApp.run() ...")
             print("tout: ", self.sonic.tout_us)
 
-        last_ticks = 0
         while True:
             try:
                 if mode & MODE_DIST:
@@ -307,156 +292,12 @@ class MyApp():
                 print("Keyboard interrupt ... exiting")
                 raise
     
-
-
     def shutdown(self):
-        self._motors.stop_motors()
-        self._oled.clear()
-
-#############################################################################
-# Motors
-#############################################################################
-#MOTOR_MAX_SPEED  = 255
-#MOTOR_MIN_SPEED  =   0
-#MOTOR_TURN_SPEED = 150
-MOTOR_DEF_SPEED  = 80
-
-MOTOR_MAX_TRIES = I2C_MAX_TRIES
-
-class MotorsI2c():
-    _DEBUG = 0
-
-    def __init__(self, i2c):
-        self._init_motors(i2c)
-
-    def _init_motors(self, i2c):
-        # Motor controller is address 0x22, its hard coded in the MotorDriver class.
-        self._mctrl = MotorDriver(i2c)
-        sleep_ms(5)
-        self.stop_motors()
-        #sleep_ms(5)
-
-    def _set_motor(self, mid, speed, direction):
-        #print("_set_motor: {}, {}, {}".format(mid, speed, direction))
-        for i in range(MOTOR_MAX_TRIES):
-            try:
-                self._mctrl.dc(mid, speed, direction)
-                return
-            except OSError as e:
-                if MotorsI2c._DEBUG:
-                    print("** Set_motor exception: ", e)
-                sleep_ms(0.5)
-        raise I2CException("set_motor {} failed".format(mid))
-
-    def forward(self, speed=MOTOR_DEF_SPEED):
-        self.motors_state = "Forward"
-        self._set_motor(1, speed, 0)
-        self._set_motor(2, speed, 0)
-
-    def backward(self, speed=MOTOR_DEF_SPEED):
-        self.motors_state = "Backward"
-        self._set_motor(1, speed, 1)
-        self._set_motor(2, speed, 1)
-
-    def turn_right(self, speed=MOTOR_DEF_SPEED):
-        self.motors_state = "Right"
-        self._set_motor(1, speed, 0)
-        self._set_motor(2, speed, 1)
-
-    def turn_left(self, speed=MOTOR_DEF_SPEED):
-        self.motors_state = "Left"
-        self._set_motor(1, speed, 1)
-        self._set_motor(2, speed, 0)
-
-    def stop_motors(self):
-        self.motors_state = "Stopped"
-        self._set_motor(1, 0, 0)
-        self._set_motor(2, 0, 0)
-
-#############################################################################
-# OLED
-#############################################################################
-OLED_I2C_ADDR = 0x3c
-
-OLED_WIDTH       = 128 # 16 chars within a row
-OLED_HEIGHT      =  64 #  8 chars within a column
-OLED_CHAR_SIZE   =   8
-OLED_ROW_CHARS   =  16 # OLED_WIDTH // OLED_CHAR_SIZE
-OLED_ROW_CENTER  = OLED_WIDTH // 2
-OLED_ROW_HEIGHT  = 16
-OLED_MAX_TRIES   = I2C_MAX_TRIES
-
-class OledI2c():
-    _DEBUG = 0
-    
-    def __init__(self, i2c, hdr):
-        # Chars per Row: 16
-        # Row 1: | FK Car|
-        # FIXME: Row 2: | motor state |
-        # Row 3: | Errors |
-        self._hdr = hdr
-        self._obuf = [["row 1", 0, 0], ["row 2", 0, OLED_ROW_HEIGHT], ["row 3", 0, 2 * OLED_ROW_HEIGHT]]
-        self._init(i2c)
-    
-    def _init(self, i2c):
-        self.octrl = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
-        self._init_buf()
-        sleep_ms(5)
-
-    def _init_buf(self):
-        self.update_row1()
-        self.update_row2("Dist: -")
-        self.update_row3("Status: Good")
-
-    def _update_row(self, row, txt):
-        tlen    = len(txt)
-        xstart  = 0
-        yoffset = (row - 1) * OLED_ROW_HEIGHT
-
-        if tlen < OLED_ROW_CHARS:
-            xstart  = OLED_ROW_CENTER - ((tlen * OLED_CHAR_SIZE) // 2)
-        else: # tlen >= OLED_ROW_CHARS:
-            txt  = txt[:OLED_ROW_CHARS]
-            xstart = 0
-        
-        self._obuf[row-1][0] = txt
-        self._obuf[row-1][1] = xstart
-        self._obuf[row-1][2] = yoffset
-
-        #oled.fill_rect(xstart, yoffset, 128, 8, 0)
-        #oled.text(txt, xstart, yoffset)
-
-    def update_row1(self):
-        self._update_row(1, self._hdr)
-
-    def update_row2(self, txt):
-        self._update_row(2, txt)
-
-    def update_row3(self, txt):
-        self._update_row(3, txt)
-
-    def _show(self):
-        for i in range(MOTOR_MAX_TRIES):
-            try:
-                self.octrl.show()
-                return
-            except OSError as e:
-                if OledI2c._DEBUG:
-                    print("** OLED Exception: ", e)
-                pass
-            sleep_ms(5)
-        else:
-            raise I2CException("Oled show failed")
-  
-    def clear(self):
-        self.octrl.fill(0)
-        return self._show()
-
-    def show(self):
-        self.octrl.fill(0)
-        for row in self._obuf:
-            self.octrl.text(row[0], row[1], row[2])
-        return self._show()
+        self.buzzer.off()
+        sleep_ms(1)
+        self.motors.stop_motors()
+        sleep_ms(1)
+        self.oled.clear()
 
 #============================================================================
 
@@ -469,13 +310,13 @@ def main():
         myApp.run(MODE_DIST)
     except KeyboardInterrupt:
         print("Keyboard interrupt ... resetting")
-        reset()
     except Exception as e:
         print("@@ Caught top level exception (main), resetting board: ", e)
-        myApp.shutdown()
-        # reset vs soft_reset() ... soft_reset() is not implemented in micropython for the Pico W
-        # machine.reset will reset the Pico W and restart the program from the beginning.
-        reset()
+
+    myApp.shutdown()
+    # reset vs soft_reset() ... soft_reset() is not implemented in micropython for the Pico W
+    # machine.reset will reset the Pico W and restart the program from the beginning.
+    reset()
     
 if __name__ == "__main__":
     main()
