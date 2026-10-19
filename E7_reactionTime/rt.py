@@ -1,5 +1,5 @@
 from machine import Pin, I2C,Timer
-from picobricks import SSD1306_I2C
+from lib.picobricks import SSD1306_I2C
 import utime
 import urandom
 

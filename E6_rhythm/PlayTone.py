@@ -1,7 +1,7 @@
 import time
 from machine import Pin, I2C, PWM, ADC, UART
-from picobricks import SSD1306_I2C, WS2812, NEC_16, IR_RX, SHTC3, MotorDriver
-from resources import Note_img, Picobricks_img, Tones, Song
+from lib.picobricks import SSD1306_I2C, WS2812, NEC_16, IR_RX, SHTC3, MotorDriver
+from lib.resources import Note_img, Picobricks_img, Tones, Song
 import framebuf
 import random
 WIDTH  = 128   # oled display width

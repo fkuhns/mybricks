@@ -1,5 +1,5 @@
 from machine import Pin, I2C
-from picobricks import MotorDriver
+from lib.picobricks import MotorDriver
 from utime import sleep
 
 I2C_SDA_PIN =  4

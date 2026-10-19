@@ -1,7 +1,7 @@
 from machine import Pin, I2C, ADC, PWM
-from ssd1306 import SSD1306_I2C
+from lib.ssd1306 import SSD1306_I2C
 import utime
-from picobricks import WS2812
+from lib.picobricks import WS2812
 
 I2C_ID      =  0
 

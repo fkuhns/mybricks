@@ -1,5 +1,5 @@
 from machine import Pin, I2C, PWM
-from picobricks import SSD1306_I2C
+from lib.picobricks import SSD1306_I2C
 from utime import sleep, ticks_ms, ticks_diff
 import sys
 

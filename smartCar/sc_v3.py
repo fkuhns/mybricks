@@ -1,8 +1,8 @@
 from machine import Pin, I2C, reset # enable_irq, disable_irq
-from picobricks import MotorDriver
-from ir_sensor import NEC_16, IR_RX
+from lib.picobricks import MotorDriver
+from lib.ir_sensor import NEC_16, IR_RX
 from utime import sleep_ms
-from ssd1306 import SSD1306_I2C
+from lib.ssd1306 import SSD1306_I2C
 import sys
 
 I2C_ID       = 0

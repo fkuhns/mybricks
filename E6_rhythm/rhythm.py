@@ -1,5 +1,5 @@
 from machine import Pin,PWM,ADC,I2C #to access the hardware picobricks
-from picobricks import SSD1306_I2C
+from lib.picobricks import SSD1306_I2C
 from utime import ticks_ms # sleep
 
 # Default I2C data and clock Pin numbers (using I2C #0)

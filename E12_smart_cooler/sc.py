@@ -1,5 +1,5 @@
 from machine import Pin, I2C
-from picobricks import MotorDriver, SHTC3
+from lib.picobricks import MotorDriver, SHTC3
 from utime import sleep
 
 TEMP_LIMIT = 25

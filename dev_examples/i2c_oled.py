@@ -1,5 +1,5 @@
 from machine import Pin,I2C, Timer
-from picobricks import SHTC3, SSD1306_I2C
+from lib.picobricks import SHTC3, SSD1306_I2C
 from utime import sleep
 
 I2C_ID      =  0

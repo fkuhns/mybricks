@@ -1,8 +1,8 @@
 from machine import Pin, I2C, SoftI2C
 from utime import sleep
-from picobricks import MotorDriver, NEC_16, IR_RX
+from lib.picobricks import MotorDriver, NEC_16, IR_RX
 from utime import sleep, sleep_ms
-from ssd1306 import SSD1306_I2C
+from lib.ssd1306 import SSD1306_I2C
 
 #############################################################################
 # I2C

@@ -1,5 +1,5 @@
 from machine import Pin, ADC
-from picobricks import  WS2812
+from lib.picobricks import  WS2812
 from utime import sleep
 
 RGB_LED_PIN =  6

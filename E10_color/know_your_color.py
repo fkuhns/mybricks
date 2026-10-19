@@ -1,9 +1,9 @@
 from machine import Pin, I2C
-from picobricks import SSD1306_I2C
+from lib.picobricks import SSD1306_I2C
 import utime
 import urandom
 import _thread
-from picobricks import WS2812
+from lib.picobricks import WS2812
 
 # Constants
 OLED_WIDTH  = 128

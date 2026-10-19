@@ -1,5 +1,5 @@
 from machine import Pin,I2C
-from picobricks import SHTC3
+from lib.picobricks import SHTC3
 import utime
 
 I2C_ID      =  0
