@@ -39,9 +39,9 @@ class Button():
         self.last    = 0
         self.count   = 0
         self._enabled = False
+        self.led     = Pin(LED_PIN, Pin.OUT)
         self.button  = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
         self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
-        
 
     def handler(self, pin):
         global last_press, pressed, pressed_seen
@@ -57,10 +57,16 @@ class Button():
     def enabled(self):
         s = disable_irq()
         try:
-            if self.count % 2:
+            if self.count % 2: # odd count (1, 3, 5, ....)
                 self._enabled = not self._enabled
+            self.count = 0 # all caught up
         finally:
             enable_irq(s)
+
+        if self._enabled:
+            self.led.value(1)
+        else:
+            self.led.value(0)
 
         return self._enabled
 
