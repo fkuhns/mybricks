@@ -21,13 +21,12 @@ IR_PIN = 0
 DIST_MIN_CHANGE  = 1 # inches
 DIST_INTERVAL_MS = 1_000
 
-_DEBUG = const(1)
+_DEBUG = const(0)
 
 class AppException(Exception):
     pass
 
 class MyApp():
-    
 
     def __init__(self):
         self.init_i2c_env()
@@ -47,13 +46,14 @@ class MyApp():
 
     def i2c_reset(self, id=I2C0_ID):
         # throws AppException
-        i2c = self.i2ctl.reset_i2c(id)
-        # FIXME: fix assumption that only one bus is used!
-        if id == I2C0_ID:
-            self.oled   = OledI2c(i2c, "FK Car")
-            self.motors = MotorsI2c(i2c)
-        else:
+        if id != I2C0_ID:
+            # FIXME: fix assumption that only one bus is used!
             raise AppException("i2c_reset id %d not used" % id)
+        
+        i2c = self.i2ctl.reset_i2c(id)
+        
+        self.oled   = OledI2c(i2c, "FK Car")
+        self.motors = MotorsI2c(i2c)
 
     # ########## OLED ##########
     def display(self):
@@ -64,8 +64,6 @@ class MyApp():
             if _DEBUG:
                 print("\tDisplay: I2C exception, OLED show, reset I2C: ", e)
             self.i2c_reset()
-        except Exception as e:
-            print("MyApp.display exception: ", e)
 
     # ########## IR ##########
     def init_ir_env(self):
@@ -308,8 +306,6 @@ class MyApp():
 def main():
     myApp = MyApp()
 
-    # check_motors()
-    # sys.exit(1)
     try:
         myApp.run(MODE_DIST)
     except KeyboardInterrupt:

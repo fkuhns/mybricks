@@ -1,42 +1,69 @@
-# from machine import Pin, PWM, ADC, I2C
+from machine import Pin, enable_irq, disable_irq
 # from picobricks import SSD1306_I2C, WS2812, SHTC3
-# from utime import ticks_ms # sleep
+from utime import sleep_ms, sleep_us, ticks_ms, ticks_diff #, ticks_us
 
 #############################################################################
 # GPIO Default pin assignments
 #############################################################################
 
-GEN_SENSOR_PIN   =  1
+I2C0_ID         = 0
+I2C1_ID         = 1
 
-IR_PIN = 0
-I2C_SDA_PIN    =  4
-I2C_SCL_PIN    =  5
 
-I2C1_ID       = 1
-I2C1_SDA_PIN  = 2
-I2C1_SCL_PIN  = 3
-
-I2C0_ID       = 0
-I2C0_SDA_PIN  = 4
-I2C0_SCL_PIN  = 5
-
+IR_PIN         =  0
+# wire example pin, used GPIO1
+I2C1_SDA_PIN   =  2
+I2C1_SCL_PIN   =  3
+I2C0_SDA_PIN   =  4
+I2C0_SCL_PIN   =  5
 RGB_LED_PIN    =  6
 LED_PIN        =  7
-
+# Not used     =  8, 9
 BUTT_PIN       = 10
-
+# Not used     = 11 - 13
 US_ECHO_PIN    = 14 # US = Ultrasonic
 US_TRIGGER_PIN = 15 # US = Ultrasonic
-
+# Not used     = 16 - 19
 BUZZ_PIN       = 20
-
+# Not used     = 21 - 25
 POT_PIN        = 26
 LDR_PIN        = 27
 
 #############################################################################
-# Button debounce
+# Button
 #############################################################################
-BUTT_DEBOUNCE_MS = 200  # Milliseconds to ignore subsequent bounces
+class Button():
+    BUTT_DEBOUNCE_MS = 200  # Milliseconds to ignore subsequent bounces
+
+    def __init__(self):
+        self.last    = 0
+        self.count   = 0
+        self._enabled = False
+        self.button  = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
+        self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
+        
+
+    def handler(self, pin):
+        global last_press, pressed, pressed_seen
+        current_time = ticks_ms()
+
+        if ticks_diff(current_time, self.last) < Button.BUTT_DEBOUNCE_MS:
+            # print("\tButton chatter, ignoring!")
+            return
+
+        self.count  += 1
+        self.last    = current_time
+
+    def enabled(self):
+        s = disable_irq()
+        try:
+            if self.count % 2:
+                self._enabled = not self._enabled
+        finally:
+            enable_irq(s)
+
+        return self._enabled
+
 
 #############################################################################
 # IR
