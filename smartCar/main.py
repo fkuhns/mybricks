@@ -69,44 +69,46 @@ class MyApp():
             print("MyAPP: Motors ",self.motors._mctrl)
 
     def i2c_error(self, id=I2C0_ID):
-        # throws AppException
+        # No exceptions are raised (pretend like id will never == 1)
         if id != I2C0_ID:
             # FIXME: fix assumption that only one bus is used!
             raise AppException("i2c_reset id %d not used" % id)
 
         old_i2c = self.i2ctl.i2c(id)
 
+        # handle_error returns None if it hasn't or is unable to reset bus
+        # it does not raise or pass exceptions
         new_i2c = self.i2ctl.handle_err(id)
         if not new_i2c:
+            # No change to i2c object
+            if _DEBUG:
+                print("i2c_error: No change to i2c, has not passed threshold or err")
             return
 
-        # motors first: OLED rebind talks to the device and may raise OSError
-        try:
-            if not self.motors.rebind(new_i2c):
-                # can not update motors so stay on the old i2c bus
-                return
-        except Exception as e:
+        # motors first: OLED rebind talks to the device
+        # No exceptions are raised or passed
+        # rebind either returns None of no changes were made ot a new obj
+        if not self.motors.rebind(new_i2c):
+            # can not update motors so stay on the old i2c bus
+            self.i2ctl.set_i2c(id, old_i2c)
             if _DEBUG:
                 print("i2c_error: exception rebinding motors!")
-            self.i2ctl.set_i2c(id, old_i2c)
-            return 
-        
-        try:
-            self.oled.rebind(new_i2c) # rebind doesn't raise exceptions
-        except Exception as e:
+            return
+
+        # No exceptions are raised or passed
+        if not self.oled.rebind(new_i2c):
             if _DEBUG:
                 print("i2c_error: exception rebinding oled!")
             self.i2ctl.set_i2c(id, old_i2c)
             self.motors.rebind(old_i2c)
 
         if _DEBUG:
-            print("MyApp.i2c_reset: I2C ", new_i2c)
-            print("MyAPP.i2c_reset: OLED ",  self.oled._octrl)
-            print("MyAPP.i2c_reset: Motors ",self.motors._mctrl)
+            print("MyApp.i2c_error: I2C ", new_i2c)
+            print("MyAPP.i2c_error: OLED ",  self.oled._octrl)
+            print("MyAPP.i2c_error: Motors ",self.motors._mctrl)
 
     # ########## OLED ##########
     def display(self):
-        # throws AppException from i2c_reset
         try:
             self.oled.show()
         except I2CException as e:
@@ -159,7 +161,7 @@ class MyApp():
     def ir_err(self, code):
         self._ir_err_code = code
 
-    def ir_ck_code(self):
+    def ir_ck_err_code(self):
         s = disable_irq()
         try:
             code = self._ir_err_code
@@ -177,7 +179,7 @@ class MyApp():
                 self.oled.update_row3("bad code")
 
     def _motor(self, fn):
-        # Helper for updating drive state, raises AppException
+        # Helper for updating drive state
         if _DEBUG:
             print("Set motors: before: ", self.motors)
         try:
@@ -191,7 +193,6 @@ class MyApp():
             print("\tSet motors  after: ", self.motors)
 
     def process_ir(self, cmd):
-        # throws AppException from i2c_reset
         action = self._ir_actions.get(cmd)
         if action is None:
             if _DEBUG:
@@ -202,16 +203,15 @@ class MyApp():
         self._motor(action)
 
     def run_ir(self):
-        # throws AppException from i2c_reset in process_ir and display
         # Called only if ir_rx is true, which means an IR message has been received and is ready to be processed.
 
-        # check for IR commands that cause errors
-        self.ir_ck_code()
+        # first see if there is a pending error code
+        self.ir_ck_err_code()
 
-        # check for valid commands
+        # Now see if there is a pending command
         if not self._ir_rx:
             return
-
+        
         s = disable_irq()
         try:
             # critical section
@@ -222,11 +222,9 @@ class MyApp():
             enable_irq(s)
 
         try:
-            self.process_ir(code) # throws AppException from i2c_reset
-            self.display() # throws AppException from i2c_reset
+            self.process_ir(code) 
+            self.display()
         # I2CExceptions & OSError are handled in process_ir and display
-        except AppException:
-            raise
         except Exception as e:
             if _DEBUG:
                 print("** run_ir: General exception, ignoring: ", e)
@@ -250,7 +248,6 @@ class MyApp():
                 print("Myapp: Distance environment not initialized")
 
     def process_dist(self):
-        # throws AppException from i2c_reset
         try:
             # throws Ultrasonic exception for timeouts or other errors
             assert self.sonic is not None
@@ -279,7 +276,6 @@ class MyApp():
         return dist
 
     def run_dist(self): 
-        # throws AppException from i2c_reset & process_dist
         # Only runs if MODE_DIST is set
         t = ticks_ms()
 
@@ -297,7 +293,7 @@ class MyApp():
             return
         
         self.dist_ticks_last = t
-        dist = self.process_dist() # AppException
+        dist = self.process_dist()
         if dist < 0:
             if _DEBUG:
                 print("\trun_dist: unknown distance, timeout: ", dist)
@@ -356,7 +352,6 @@ class MyApp():
                     print("run caught exception, ignoring: ", e)
 
     def shutdown(self):
-        # throws AppException from i2c_reset
         self._motor(self.motors.stop_force)
         if self.mode & MODE_DIST:
             self.dist_last = -1

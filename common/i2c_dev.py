@@ -95,18 +95,22 @@ class I2cCtl():
 
     def handle_err(self, id):
         # assume this is being called due to an I2CException
+        # does not raise or pass through exceptions
         t = ticks_ms()
         if ticks_diff(t, self.Errors[id]["last"]) > I2cCtl.I2C_ERR_MAX_MS:
-            self.Errors[id]["last"] = t
+            # reset error count and return
+            self.Errors[id]["last"]  = t
             self.Errors[id]["count"] = 1
-            # do nothing for the first error
             return None
 
+        # increment error count
         self.Errors[id]["count"] += 1
         if self.Errors[id]["count"] < I2cCtl.I2C_ERR_MAX_CNT:
             return None
-        
+
+        # Over error count, reset
         self.Errors[id]["count"] = 1
+        # no change to "last", still working within the original window
         try:
             self._reset_i2c(id)
         except OSError as e:
@@ -116,6 +120,10 @@ class I2cCtl():
         except RuntimeError as e:
             if self.DEBUG:
                 print("I2C handle_err caught RuntimeError, assume temp: ", e)
+            return None
+        except Exception as e:
+            if self.DEBUG:
+                print("I2C handle_err caught Exception: ", e)
             return None
 
         return self._i2c[id]["OBJ"]
@@ -143,7 +151,7 @@ class I2cCtl():
             # FIXME: is a sleep needed here?? sleep_us(10)
             sleep_us(10)
 
-            if self.DEBUG and sda.value() == 0:
+            if self.DEBUG and (sda.value() == 0):
                 print("reset_i2c: sda is being held low", sda.value())
 
             # if SDA is being held low by the peripheral, we wont be able 
@@ -184,6 +192,7 @@ class I2cCtl():
         except Exception as e:
             if self.DEBUG:
                 print("reset_i2c exception: ", e)
+            # FIXME: Do I need to redefine pins?
             self._i2c[id]["OBJ"] = old_i2c
             raise e
 

@@ -1,12 +1,12 @@
 # Smart car v6 architecture
 
-`sc_v6.py` is the application entrypoint. Its `main()` constructs `MyApp` in
+`main.py` is the application entrypoint. Its `main()` constructs `MyApp` in
 distance mode, runs the application loop, and shuts the car down before
 resetting the board.
 
 ```mermaid
 flowchart TD
-    entry["smartCar/sc_v6.py<br/>main()"] --> app["MyApp"]
+    entry["smartCar/main.py<br/>main()"] --> app["MyApp"]
     app --> loop["MyApp.run()<br/>main loop and mode dispatch"]
     loop --> distance["MyApp.run_dist()<br/>autonomous distance behavior"]
     loop --> infrared["MyApp.run_ir()<br/>remote command handling"]
@@ -21,7 +21,7 @@ flowchart TD
         motor_lib["picobricks.py<br/>MotorDriver"]
         display_lib["ssd1306.py<br/>SSD1306_I2C"]
         buzzer_lib["buzzer.py<br/>Buzzer"]
-        resources["resources.py<br/>(not used by sc_v6.py)"]
+        resources["resources.py<br/>(not used by main.py)"]
     end
 
     app --> common_mod
