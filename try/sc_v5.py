@@ -1,10 +1,10 @@
-from machine import Pin, I2C, reset, enable_irq, disable_irq
+from machine import Pin, reset, enable_irq, disable_irq
 from ir_sensor import NEC_8, IR_RX
-from utime import sleep_ms, sleep_us, ticks_ms, ticks_diff #, ticks_us
+from utime import sleep_ms, sleep_us, ticks_ms, ticks_us, ticks_diff
 #from ssd1306 import SSD1306_I2C
-from common import Button
+from common import Button, Pot
 from usonic import UltrasonicSensor, UltraSonicTimeout
-from i2c_dev import I2cCtl, MotorsI2c, OledI2c, I2CException, MOTOR_STATE_BKWD, MOTOR_STATE_FWD, MOTOR_STATE_LEFT, MOTOR_STATE_RIGHT, MOTOR_STATE_STOP, MOTOR_STATE_INIT, MOTOR_STATE_UNK
+from i2c_dev import I2cCtl, MotorsI2c, OledI2c, I2CException
 
 MODE_DIST = const(1)  # bin 0001
 MODE_IR   = const(2)  # bin 0010
@@ -35,16 +35,17 @@ class MyApp():
         self.init_ir_env()
         self.init_dist()
         self.butt = Button()
+        self.pot  = Pot()
 
     # ########## I2C ##########
     def init_i2c_env(self):
-        self.i2ctl  = I2cCtl()
-        self.oled   = OledI2c(self.i2ctl.i2c[I2C0_ID]["OBJ"], "FK Car")
-        self.motors = MotorsI2c(self.i2ctl.i2c[I2C0_ID]["OBJ"])
+        self.i2ctl  = I2cCtl(debug=0)
+        self.oled   = OledI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], "FK Car", debug=0)
+        self.motors = MotorsI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], debug=0)
 
         if _DEBUG:
             print("MyApp: I2C environment up")
-            print("MyAPP: OLED ",  self.oled.octrl)
+            print("MyAPP: OLED ",  self.oled._octrl)
             print("MyAPP: Motors ",self.motors._mctrl)
 
     def i2c_reset(self, id=I2C0_ID):
@@ -52,11 +53,16 @@ class MyApp():
         if id != I2C0_ID:
             # FIXME: fix assumption that only one bus is used!
             raise AppException("i2c_reset id %d not used" % id)
-        
-        i2c = self.i2ctl.reset_i2c(id)
+
+        i2c = self.i2ctl._reset_i2c(id)
         
         self.oled   = OledI2c(i2c, "FK Car")
         self.motors = MotorsI2c(i2c)
+
+        if _DEBUG:
+            print("MyApp.i2c_reset: I2C ", i2c)
+            print("MyAPP.i2c_reset: OLED ",  self.oled._octrl)
+            print("MyAPP.i2c_reset: Motors ",self.motors._mctrl)
 
     # ########## OLED ##########
     def display(self):
@@ -75,7 +81,7 @@ class MyApp():
         self._ir_ctrl = NEC_8(Pin(IR_PIN, Pin.IN), self.ir_callback) # type: ignore
         self._ir_ctrl._errf = self.ir_err
         if _DEBUG:
-            print("** MyApp: IR up: ", self._ir_ctrl)
+            print("MyApp : IR up: ", self._ir_ctrl)
 
     def ir_callback(self, cmd, addr, _):
         # An IR message has been received, ignore address.
@@ -215,7 +221,7 @@ class MyApp():
         self.dist_min_change = DIST_MIN_CHANGE
         self.dist_last       = -1
         self.dist_ticks_last =  0
-        #self.sonic.tout_us = 1_000_000
+        print("MyApp: Distance env up")
 
     def process_dist(self):
         # throws AppException from i2c_reset
@@ -231,8 +237,8 @@ class MyApp():
         if abs(dist - self.dist_last) < self.dist_min_change:
             return dist
 
-        if _DEBUG:
-            print("process_dist dist = %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
+        # if _DEBUG:
+        #     print("process_dist dist = %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
 
         self.dist_last = dist
         
@@ -266,26 +272,34 @@ class MyApp():
                         print("\t** run_dist, backward, I2C exception, reset I2C: ", e)
                     self.i2c_reset()
             else:
+                delay = self.pot.get_value()
+                print("Delay = ", delay, "ms")
                 try:
                     self.motors.turn_left()
-                    sleep_ms(500)
+                    # t = ticks_us()
+                    sleep_ms(delay)
+                    # diff = ticks_diff(ticks_us(), t)
+                    # print("FIXME: delay = ", diff, "us")
                     self.motors.stop_motors()
                 except I2CException as e:
                     if _DEBUG:
-                        print("\t** run_dist, left ... stop, I2C exception, reset I2C: ", e)
+                        print("\t** run_dist, left-delay-stop I2C exception, reset I2C: ", e)
                     self.i2c_reset()
         
     # ########## App ##########
     def run(self, mode):
-
+        running = 0
         while True:
             try:
                 if mode & MODE_BUTT:
                     while not self.butt.enabled():
-                        self.shutdown()
-                        # recheck every second
-                        sleep_ms(1_000)
+                        if running:
+                            running = 0
+                            self.shutdown()
+                        # recheck every half second
+                        sleep_ms(500)
 
+                running = 1
                 if mode & MODE_DIST:
                     self.run_dist()
 

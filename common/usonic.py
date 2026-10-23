@@ -19,7 +19,7 @@ US_TRIGGER_PIN =   15  # GPIO pin for trigger
 US_ECHO_PIN    =   14  # GPIO pin for echo
 
 US_SPEED_IPUS  = 0.01359876  # Inches per microsecond
-US_DIST_MAX    = 144.00  # 12 feet
+US_DIST_MAX    = 288.00  # 144 inches = 12 feet
 
 _DEBUG = const(0)
 
@@ -32,13 +32,12 @@ class UltrasonicSensor:
         self.echo = Pin(echo_pin, Pin.IN)
         # At 75 degrees F, the speed of sound is 1,133.23 fps
         # 1,133.23 ft/sec * 12 in/ft * 1 sec/1,000,000 us = 0.01359876 in/us
-        # = 0.00113323 ft/usec, or 882.4 usec/ft, 2,647 us for 3 ft.
-        #self.cf = 0.01359876  # Speed of sound in inches per microsecond at 75 degrees F
-        # 5ms => 5.67 ft, 3ms => 3.4 ft, 
-        # 8' => 7.06ms (7059 us)
-        # 4' => 3.53ms (3530 us)
-        # 3' => 2.6 ms (2647 us)
-        # Note: the sonic pulse time out if for the round trip.
+        # or 13.59876 in/ms.
+        # @ 20' ~ 18ms
+        # x in / US_SPEED_IPUS = time to travel
+        # 12' = 144" => ~10.59ms or ~ 11ms one way
+        # 10' = 120" => ~8.824ms or ~  9ms one way
+        # 20' = 240" => ~17.65ms or ~ 18ms one way
         self.tout_us = int(round(2* (US_DIST_MAX / US_SPEED_IPUS)))
 
     def get_distance(self):
@@ -47,7 +46,7 @@ class UltrasonicSensor:
         FIXME: Add code for cm
         """
         # Code to trigger the ultrasonic sensor and measure the time taken.
-        # The echo Pin is normally high, so first set low then high for 
+        # The echo Pin is normally low
         # 10 microseconds to trigger the sensor to send the ultrasound pulse.
         # Then measure the time taken for the echo to return.
         self.trig.low()

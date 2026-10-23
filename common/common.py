@@ -1,34 +1,38 @@
-from machine import Pin, enable_irq, disable_irq
-# from picobricks import SSD1306_I2C, WS2812, SHTC3
-from utime import sleep_ms, sleep_us, ticks_ms, ticks_diff #, ticks_us
+from machine import Pin, enable_irq, disable_irq, ADC
+from utime import sleep, ticks_ms, ticks_diff
 
 #############################################################################
 # GPIO Default pin assignments
 #############################################################################
-
 I2C0_ID         = 0
 I2C1_ID         = 1
 
-
-IR_PIN         =  0
-# wire example pin, used GPIO1
+# -----------------------------------
+# wireless / IR module 0 tx and 1 rx
+IR_PIN         =  0 # wireless/ir module, UART0, pin 0 tx?
+# Pin 1 - wire example pin, wireless/IR module RX?
 I2C1_SDA_PIN   =  2
 I2C1_SCL_PIN   =  3
-I2C0_SDA_PIN   =  4
-I2C0_SCL_PIN   =  5
-RGB_LED_PIN    =  6
-LED_PIN        =  7
+I2C0_SDA_PIN   =  4 # OLED, SHTC3 (temp/humid)
+I2C0_SCL_PIN   =  5 # OLED, SHTC3 (temp/humid)
+RGB_LED_PIN    =  6 # RGB LED
+LED_PIN        =  7 # Red led on button module
 # Not used     =  8, 9
-BUTT_PIN       = 10
+BUTT_PIN       = 10 # Button
 # Not used     = 11 - 13
 US_ECHO_PIN    = 14 # US = Ultrasonic
 US_TRIGGER_PIN = 15 # US = Ultrasonic
 # Not used     = 16 - 19
-BUZZ_PIN       = 20
-# Not used     = 21 - 25
-POT_PIN        = 26
-LDR_PIN        = 27
-
+BUZZ_PIN       = 20 # Buzzer/Speaker
+# Pin 21 - Relay module  = 21 
+# Pins 21 & 22 - Motor controller
+# System - Pin 23 (output) SMPS power save mode
+# System - Pin 24 (input) VBUS sense
+# System - Pin 25 (output) on-board LED
+POT_PIN        = 26 # ADC0
+LDR_PIN        = 27 # ADC1
+# Pin 28 - ADC2
+# System - Pin 29 (input) ADC3, monitor VSYS/3
 #############################################################################
 # Button
 #############################################################################
@@ -44,7 +48,6 @@ class Button():
         self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
 
     def handler(self, pin):
-        global last_press, pressed, pressed_seen
         current_time = ticks_ms()
 
         if ticks_diff(current_time, self.last) < Button.BUTT_DEBOUNCE_MS:
@@ -70,7 +73,25 @@ class Button():
 
         return self._enabled
 
+#############################################################################
+# Potentiometer
+#############################################################################
+# assume time for a 360 degree turn is 2 seconds or 2,000 ms.
+# Convert 0 - 65,535 (2^16-1) to 1 - 2,048 (2^11) ms.
+# approx = value_u16() * 2^11/2^16 = value_16() * 2^-5 = value_16() >> 5
 
+class Pot():
+    #GPIO_VOLT_MAX = 3.3
+    GPIO_VAL_BITS = 16
+    def __init__(self, min=1, bits=11):
+        self.shift = Pot.GPIO_VAL_BITS - bits
+        self.min = min
+        self.pot   = ADC(Pin(POT_PIN, Pin.IN))
+
+    def get_value(self):
+        val = self.pot.read_u16()
+        return self.min + (val >> self.shift)
+  
 #############################################################################
 # IR
 #############################################################################
@@ -141,7 +162,7 @@ LDR_LOW_LIGHT = 4000
 # oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
 # Only works with the default frequency
 #############################################################################
-LED_I2C_ADDR = 0x3c
+OLED_I2C_ADDR = 0x3c
 
 OLED_WIDTH       = 128 # 16 chars within a row
 OLED_HEIGHT      =  64 #  8 chars within a column
@@ -153,10 +174,6 @@ OLED_ROW_HEIGHT  = 16
 # OLED_CHARS_X = OLED_WIDTH // 8 # // = floor division
 # OLED_CHARS_Y = OLED_HEIGHT // 8
 # OLED_SPACING_Y = 2 # Default spacing between lines in pixels
-
-def clear_oled(oled):
-    oled.fill(0)#clear OLED
-    oled.show()
 
 #############################################################################
 # ADC

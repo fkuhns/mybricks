@@ -1,5 +1,6 @@
 from machine import Pin,I2C, Timer
-from lib.picobricks import SHTC3, SSD1306_I2C
+from picobricks import SHTC3
+from ssd1306 SSD1306_I2C
 from utime import sleep
 
 I2C_ID      =  0
@@ -11,7 +12,7 @@ OLED_HEIGHT   =  64 #  8 chars within a column
 OLED_I2C_ADDR = 0x3c
 
 def clear_oled(oled):
-    oled.fill(0)#clear OLED
+    oled.fill(0) #clear OLED
     oled.show()
 
 i2c  = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN))
