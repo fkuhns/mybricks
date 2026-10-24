@@ -5,7 +5,7 @@ from utime import sleep_ms, ticks_ms, ticks_diff, ticks_add, sleep
 from array import array
 from common import Button, Pot
 from usonic import UltrasonicSensor, UltraSonicTimeout
-from i2c_dev import I2cCtl, MotorsI2c, OledI2c, I2CException
+from i2c_dev import I2cCtl, CarMotors, OledI2c, I2CException
 
 MODE_DIST = const( 1) # bin 0_0001, 0x01
 MODE_IR   = const( 2) # bin 0_0010, 0x02
@@ -59,7 +59,7 @@ class MyApp():
     def init_i2c_env(self):
         self.i2ctl  = I2cCtl(debug=0)
         self.oled   = OledI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], "FK Car", debug=0)
-        self.motors = MotorsI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"],
+        self.motors = CarMotors(self.i2ctl._i2c[I2C0_ID]["OBJ"],
                                 self.mode & MODE_BUZZ, 
                                 debug=0)
 

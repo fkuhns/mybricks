@@ -4,7 +4,7 @@ from utime import sleep_ms, sleep_us, ticks_ms, ticks_us, ticks_diff
 #from ssd1306 import SSD1306_I2C
 from common import Button, Pot
 from usonic import UltrasonicSensor, UltraSonicTimeout
-from i2c_dev import I2cCtl, MotorsI2c, OledI2c, I2CException
+from i2c_dev import I2cCtl, CarMotors, OledI2c, I2CException
 
 MODE_DIST = const(1)  # bin 0001
 MODE_IR   = const(2)  # bin 0010
@@ -41,7 +41,7 @@ class MyApp():
     def init_i2c_env(self):
         self.i2ctl  = I2cCtl(debug=0)
         self.oled   = OledI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], "FK Car", debug=0)
-        self.motors = MotorsI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], debug=0)
+        self.motors = CarMotors(self.i2ctl._i2c[I2C0_ID]["OBJ"], debug=0)
 
         if _DEBUG:
             print("MyApp: I2C environment up")
@@ -57,7 +57,7 @@ class MyApp():
         i2c = self.i2ctl._reset_i2c(id)
         
         self.oled   = OledI2c(i2c, "FK Car")
-        self.motors = MotorsI2c(i2c)
+        self.motors = CarMotors(i2c)
 
         if _DEBUG:
             print("MyApp.i2c_reset: I2C ", i2c)

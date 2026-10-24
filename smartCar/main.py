@@ -5,7 +5,9 @@ from utime import sleep_ms, ticks_ms, ticks_diff, ticks_add, sleep
 from array import array
 from common import Button, Pot
 from usonic import UltrasonicSensor, UltraSonicTimeout
-from i2c_dev import I2cCtl, MotorsI2c, OledI2c, I2CException
+from i2c_dev import I2cCtl, OledI2c, I2CException
+from motor import CarMotors, MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_RIGHT, MOTOR_CMD_STOP, MOTOR_CMD_NONE, MOTOR_CMD_STOP_FORCE
+
 
 MODE_DIST = const( 1) # bin 0_0001, 0x01
 MODE_IR   = const( 2) # bin 0_0010, 0x02
@@ -55,24 +57,24 @@ class MyApp():
         else:
             self.pot = None
 
-    # ########## I2C ##########
+    #############################################################################
+    # I2C 
+    #############################################################################
     def init_i2c_env(self):
         self.i2ctl  = I2cCtl(debug=0)
         self.oled   = OledI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], "FK Car", debug=0)
-        self.motors = MotorsI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"],
+        self.motors = CarMotors(self.i2ctl._i2c[I2C0_ID]["OBJ"],
                                 self.mode & MODE_BUZZ, 
                                 debug=0)
 
         if _DEBUG:
             print("MyApp: I2C environment up")
             print("MyAPP: OLED ",  self.oled._octrl)
-            print("MyAPP: Motors ",self.motors._mctrl)
+            print("MyAPP: Motors ",self.motors.mctrl)
 
     def i2c_error(self, id=I2C0_ID):
         # No exceptions are raised (pretend like id will never == 1)
-        if id != I2C0_ID:
-            # FIXME: fix assumption that only one bus is used!
-            raise AppException("i2c_reset id %d not used" % id)
+        assert id == I2C0_ID, "I2C ID not equal to 0"
 
         old_i2c = self.i2ctl.i2c(id)
 
@@ -90,7 +92,7 @@ class MyApp():
         # rebind either returns None of no changes were made ot a new obj
         if not self.motors.rebind(new_i2c):
             # can not update motors so stay on the old i2c bus
-            self.i2ctl.set_i2c(id, old_i2c)
+            self.i2ctl.set_i2c(old_i2c, id)
             if _DEBUG:
                 print("i2c_error: exception rebinding motors!")
             return
@@ -99,15 +101,17 @@ class MyApp():
         if not self.oled.rebind(new_i2c):
             if _DEBUG:
                 print("i2c_error: exception rebinding oled!")
-            self.i2ctl.set_i2c(id, old_i2c)
+            self.i2ctl.set_i2c(old_i2c, id)
             self.motors.rebind(old_i2c)
 
         if _DEBUG:
             print("MyApp.i2c_error: I2C ", new_i2c)
             print("MyAPP.i2c_error: OLED ",  self.oled._octrl)
-            print("MyAPP.i2c_error: Motors ",self.motors._mctrl)
+            print("MyAPP.i2c_error: Motors ",self.motors.mctrl)
 
-    # ########## OLED ##########
+    #############################################################################
+    # OLED 
+    #############################################################################
     def display(self):
         try:
             self.oled.show()
@@ -116,7 +120,9 @@ class MyApp():
                 print("\tDisplay: I2C exception, OLED show, reset I2C: ", e)
             self.i2c_error()
 
-    # ########## IR ##########
+    #############################################################################
+    # IR
+    #############################################################################
     def init_ir_env(self):
         self._ir_err_code = 0
         self._ir_cmd  = 0x00
@@ -126,26 +132,17 @@ class MyApp():
             self._ir_ctrl = NEC_8(Pin(IR_PIN, Pin.IN), self.ir_callback) # type: ignore
             self._ir_ctrl._errf = self.ir_err
                     # in __init__ / init_ir_env:
-            self._ir_actions = {
+            self.ir_cmd_map = {
                 # Command: function,
-                IR_RX.number_up:    lambda: self.motors.forward(),
-                IR_RX.number_down:  lambda: self.motors.backward(),
-                IR_RX.number_left:  lambda: self.motors.turn_left(),
-                IR_RX.number_right: lambda: self.motors.turn_right(),
-                IR_RX.number_ok:    lambda: self.motors.stop_motors(),
-                IR_RX.REPEAT:       lambda: self.motors.repeat(),
-            }
+                IR_RX.number_up:    MOTOR_CMD_FORWARD,
+                IR_RX.number_down:  MOTOR_CMD_REVERSE,
+                IR_RX.number_left:  MOTOR_CMD_LEFT,
+                IR_RX.number_right: MOTOR_CMD_RIGHT,
+                IR_RX.number_ok:    MOTOR_CMD_STOP,
+                IR_RX.REPEAT:       MOTOR_CMD_NONE,
+            } # no mapping for MOTOR_CMD_STOP_FORCE
         else:
             self._ir_ctrl = None
-            self._ir_actions = {
-                # Command: function,
-                IR_RX.number_up:    lambda: None,
-                IR_RX.number_down:  lambda: None,
-                IR_RX.number_left:  lambda: None,
-                IR_RX.number_right: lambda: None,
-                IR_RX.number_ok:    lambda: None,
-                IR_RX.REPEAT:       lambda: None,
-            }
 
         if _DEBUG:
             print("MyApp : IR up: ", self._ir_ctrl)
@@ -178,29 +175,28 @@ class MyApp():
             except KeyError:
                 self.oled.update_row3("bad code")
 
-    def _motor(self, fn):
-        # Helper for updating drive state
-        if _DEBUG:
-            print("Set motors: before: ", self.motors)
-        try:
-            fn()
-        except I2CException as e:
-            if _DEBUG:
-                print("\t** motor I2C exception, reset I2C: \n\t", e)
-                print(self.motors)
-            self.i2c_error()
-        if _DEBUG:
-            print("\tSet motors  after: ", self.motors)
+    # def _motor(self, fn):
+    #     # Helper for updating drive state
+    #     if _DEBUG:
+    #         print("Set motors: before: ", self.motors)
+    #     try:
+    #         fn()
+    #     except I2CException as e:
+    #         if _DEBUG:
+    #             print("\t** motor I2C exception, reset I2C: \n\t", e)
+    #             print(self.motors)
+    #         self.i2c_error()
+    #     if _DEBUG:
+    #         print("\tSet motors  after: ", self.motors)
 
     def process_ir(self, cmd):
-        action = self._ir_actions.get(cmd)
-        if action is None:
+        motor_cmd = self.ir_cmd_map[cmd]
+        if motor_cmd is None:
             if _DEBUG:
                 print("process_ir: Invalid command ", cmd)
             self.oled.update_row3("IR cmd error")
             return
-
-        self._motor(action)
+        self.motors.add_cmd(motor_cmd)
 
     def run_ir(self):
         # Called only if ir_rx is true, which means an IR message has been received and is ready to be processed.
@@ -229,7 +225,9 @@ class MyApp():
             if _DEBUG:
                 print("** run_ir: General exception, ignoring: ", e)
 
-    # ########## Distance ##########
+    #############################################################################
+    # Distance
+    #############################################################################
     def init_dist(self):
         if self.mode & MODE_DIST:
             self.sonic = UltrasonicSensor()
@@ -279,14 +277,14 @@ class MyApp():
         # Only runs if MODE_DIST is set
         t = ticks_ms()
 
-        # Non-blocking turn: keep turning until the deadline, then stop
-        # and take a fresh reading right away.
-        if self.turn_end is not None:
-            if ticks_diff(t, self.turn_end) < 0:
-                return
-            self.turn_end = None
-            self._motor(self.motors.stop_motors)
-            self.dist_ticks_last = t # FIXME: ticks_add(t, -DIST_INTERVAL_MS)
+        # # Non-blocking turn: keep turning until the deadline, then stop
+        # # and take a fresh reading right away.
+        # if self.turn_end is not None:
+        #     if ticks_diff(t, self.turn_end) < 0:
+        #         return
+        #     self.turn_end = None
+        #     self._motor(self.motors.stop_motors)
+        #     self.dist_ticks_last = t # FIXME: ticks_add(t, -DIST_INTERVAL_MS)
 
         # Get distance
         if ticks_diff(t, self.dist_ticks_last) < DIST_INTERVAL_MS:
@@ -299,21 +297,26 @@ class MyApp():
                 print("\trun_dist: unknown distance, timeout: ", dist)
             # FIXME: better would be checking previous distance to determine likelihood
             # that the timeout means "infinite"
-            self._motor(self.motors.stop_motors)
+            #self._motor(self.motors.stop_motors)
+            self.motors.add_cmd(MOTOR_CMD_STOP)
 
         elif dist > 24.0:
-            self._motor(self.motors.forward)
+            #self._motor(self.motors.forward)
+            self.motors.add_cmd(MOTOR_CMD_FORWARD)
 
         elif dist < 12.0:
-            self._motor(self.motors.backward)
+            #self._motor(self.motors.backward)
+            self.motors.add_cmd(MOTOR_CMD_REVERSE)
 
         else:
-            if _DEBUG:
-                print("Turn delay = ", self.turn_delay, "ms")
-            self._motor(self.motors.turn_left)
-            self.turn_end = ticks_add(t, self.turn_delay)
-        
-    # ########## App ##########
+            # self._motor(self.motors.turn_left)
+            # self.turn_end = ticks_add(t, self.turn_delay)
+            self.motors.add_cmd(MOTOR_CMD_LEFT)
+
+
+    #############################################################################
+    # App
+    #############################################################################
     def run(self):
         running = 0
         while True:
@@ -339,6 +342,10 @@ class MyApp():
                 if self.mode & MODE_IR:
                     self.run_ir()
 
+                # Assuming there will motor commands to process
+                # either from IR, Dist or both
+                self.motors.run_cmds()
+
             except KeyboardInterrupt:
                 if _DEBUG:
                     print("Keyboard interrupt ... exiting")
@@ -352,7 +359,8 @@ class MyApp():
                     print("run caught exception, ignoring: ", e)
 
     def shutdown(self):
-        self._motor(self.motors.stop_force)
+        self.motors.add_cmd(MOTOR_CMD_STOP_FORCE)
+        # self._motor(self.motors.stop_force)
         if self.mode & MODE_DIST:
             self.dist_last = -1
             self.turn_end  = None

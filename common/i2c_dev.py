@@ -78,7 +78,7 @@ class I2cCtl():
         #                                scl  = Pin(self.i2c[I2C1_ID]["SCL"]), 
         #                                sda  = Pin(self.i2c[I2C1_ID]["SDA"]), 
         #   
-        sleep_ms(1)        
+        # FIXME: Do I need this -> sleep_ms(1)        
 
         if self.DEBUG:
             print("I2cCtl: I2C 0 ", self._i2c[I2C0_ID]["OBJ"])
@@ -87,13 +87,17 @@ class I2cCtl():
     def __str__(self):
         return "I2C: {}".format(self._i2c[I2C0_ID]["OBJ"])
     
-    def i2c(self, id):
+    def i2c(self, id=I2C0_ID):
+        assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
+
         return self._i2c[id]["OBJ"]
 
-    def set_i2c(self, id, i2c):
+    def set_i2c(self, i2c, id=I2C0_ID):
+        assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
         self._i2c[id]["OBJ"] = i2c
 
-    def handle_err(self, id):
+    def handle_err(self, id=I2C0_ID):
+        assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
         # assume this is being called due to an I2CException
         # does not raise or pass through exceptions
         t = ticks_ms()
@@ -108,7 +112,8 @@ class I2cCtl():
         if self.Errors[id]["count"] < I2cCtl.I2C_ERR_MAX_CNT:
             return None
 
-        # Over error count, reset
+        # Over error count, reset and start counting again
+        # but leave window with the same last time stamp
         self.Errors[id]["count"] = 1
         # no change to "last", still working within the original window
         try:
@@ -128,14 +133,16 @@ class I2cCtl():
 
         return self._i2c[id]["OBJ"]
 
-    def _reset_i2c(self, id):
+    def _reset_i2c(self, id=I2C0_ID):
         # Can handle where the master has stopped issuing clock cycles
         # slave is holding sda low waiting.
         # This does not address clock stretching, for that need to give
         # peripheral time 
+        # No exception (except for assertions)
+        assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
         old_i2c = self._i2c[id]["OBJ"]
         if (not old_i2c) and self.DEBUG:
-            # Should never happen!!
+            # Should never happen, but not a problem since we are creating a new one
             if self.DEBUG:
                 print("reset_i2c: i2c ID 2 not defined")
 
@@ -196,175 +203,176 @@ class I2cCtl():
             self._i2c[id]["OBJ"] = old_i2c
             raise e
 
-class MotorsI2c():
-    def __init__(self, i2c, buzz=True, debug=0):
-        self.DEBUG = debug
-        self.state = [MOTOR_STATE_INIT, MOTOR_STATE_INIT, MOTOR_STATE_INIT]
-        if buzz:
-            self.buzzer = Buzzer(debug=0)
-        else:
-            self.buzzer = None
+# class CarMotors():
+#     def __init__(self, i2c, buzz=True, debug=0):
+#         self.DEBUG = debug
+#         self.state = [MOTOR_STATE_INIT, MOTOR_STATE_INIT, MOTOR_STATE_INIT]
+#         if buzz:
+#             self.buzzer = Buzzer(debug=0)
+#         else:
+#             self.buzzer = None
 
-        self._init_motors(i2c)
+#         self._init_motors(i2c)
 
-    def rebind(self, i2c):
-        mctrl = self._mctrl
-        try:
-            self._init_motors(i2c)
-            return self._mctrl
-        except Exception as e:
-            if self.DEBUG:
-                print("rebind motor exception: ", e)
-            self._mctrl = mctrl
-        return None
+#     def _init_motors(self, i2c):
+#         # Motor controller is address 0x22, its hard coded in the MotorDriver class.
+#         self._mctrl = MotorDriver(i2c)
+#         sleep_ms(5) # FIXME: do i need this sleep
+#         # force: after a bus reset the controller state is unknown
+#         self.stop_force()
 
-    def _init_motors(self, i2c):
-        # Motor controller is address 0x22, its hard coded in the MotorDriver class.
-        self._mctrl = MotorDriver(i2c)
-        sleep_ms(5)
-        # force: after a bus reset the controller state is unknown
-        self.stop_force()
+#     def rebind(self, i2c):
+#         mctrl = self._mctrl
+#         try:
+#             self._init_motors(i2c)
+#             return self._mctrl
+#         except Exception as e:
+#             if self.DEBUG:
+#                 print("rebind motor exception: ", e)
+#             self._mctrl = mctrl
+#         return None
+    
+#     def _set_motor(self, mid, speed, direction):
+#         # throws I2CException
+#         # ID: 1 (Left), 2 (Right)
+#         # Speed: 0 (Stop), 1-255
+#         # Direction: 0=Forward, 1=Reverse
+#         if self.DEBUG:
+#             print("_set_motor: {}, {}, {}".format(mid, speed, direction))
 
-    def _set_motor(self, mid, speed, direction):
-        # throws I2CException
-        # ID: 1 (Left), 2 (Right)
-        # Speed: 0 (Stop), 1-255
-        # Direction: 0=Forward, 1=Reverse
-        if self.DEBUG:
-            print("_set_motor: {}, {}, {}".format(mid, speed, direction))
+#         last_error = None
+#         for i in range(MOTOR_MAX_TRIES):
+#             try:
+#                 self._mctrl.dc(mid, speed, direction)
+#                 return
+#             except OSError as e:
+#                 last_error = e
+#                 if self.DEBUG:
+#                     print("_set_motor: Set_motor OSError: ", e)
 
-        last_error = None
-        for i in range(MOTOR_MAX_TRIES):
-            try:
-                self._mctrl.dc(mid, speed, direction)
-                return
-            except OSError as e:
-                last_error = e
-                if self.DEBUG:
-                    print("_set_motor: Set_motor OSError: ", e)
+#             except Exception as e:
+#                 last_error = e
+#                 if self.DEBUG:
+#                     print("_set_motor Unexpected exception ", e)
 
-            except Exception as e:
-                last_error = e
-                if self.DEBUG:
-                    print("_set_motor Unexpected exception ", e)
+#             sleep_ms(15) # FIXME: do I need 15ms, prefer less!
 
-            sleep_ms(15)
+#             if self.DEBUG:
+#                 print("set_motor loop iteration ", i, " failed")
+#         else:
+#             raise I2CException(
+#                 "set_motor %d (state %s/%s, dir %d) failed after %d tries: %s"
+#                 % (mid, self.state[0], self.state[mid], direction, MOTOR_MAX_TRIES, last_error)
+#             )
 
-            if self.DEBUG:
-                print("set_motor loop iteration ", i, " failed")
-        else:
-            raise I2CException(
-                "set_motor %d (state %s/%s, dir %d) failed after %d tries: %s"
-                % (mid, self.state[0], self.state[mid], direction, MOTOR_MAX_TRIES, last_error)
-            )
+#     def __str__(self):
+#         return "Motors: state {}, M1 {}, M2 {}".format(self.state[0], self.state[1], self.state[2])
 
-    def __str__(self):
-        return "Motors: state {}, M1 {}, M2 {}".format(self.state[0], self.state[1], self.state[2])
-
-    def forward(self, speed=MOTOR_DEF_SPEED):
-        # throws I2CException
-        if self.state[0] == MOTOR_STATE_FWD:
-            return
+#     def forward(self, speed=MOTOR_DEF_SPEED):
+#         # throws I2CException
+#         if self.state[0] == MOTOR_STATE_FWD:
+#             return
         
-        if self.buzzer != None:
-            self.buzzer.off()
-        self.state[0] = MOTOR_STATE_UNK
+#         if self.buzzer != None:
+#             self.buzzer.off()
+#         self.state[0] = MOTOR_STATE_UNK
 
-        self._set_motor(1, speed, 0)
-        self.state[1] = MOTOR_STATE_FWD
+#         self._set_motor(1, speed, 0)
+#         self.state[1] = MOTOR_STATE_FWD
 
-        self._set_motor(2, speed, 0)
-        self.state[2] = MOTOR_STATE_FWD
+#         self._set_motor(2, speed, 0)
+#         self.state[2] = MOTOR_STATE_FWD
 
-        self.state[0] = MOTOR_STATE_FWD
+#         self.state[0] = MOTOR_STATE_FWD
 
-    def backward(self, speed=MOTOR_DEF_SPEED):
-        # throws I2CException
-        if self.state[0] == MOTOR_STATE_BKWD:
-            return
-        if self.buzzer != None:
-            self.buzzer.off()
-        self.state[0] = MOTOR_STATE_UNK
+#     def backward(self, speed=MOTOR_DEF_SPEED):
+#         # throws I2CException
+#         if self.state[0] == MOTOR_STATE_BKWD:
+#             return
+#         # FIXME: Do I need the below?
+#         # if self.buzzer != None:
+#         #     self.buzzer.off()
+#         self.state[0] = MOTOR_STATE_UNK
 
-        self._set_motor(1, speed, 1)
-        self.state[1] = MOTOR_STATE_BKWD
+#         self._set_motor(1, speed, 1)
+#         self.state[1] = MOTOR_STATE_BKWD
 
-        self._set_motor(2, speed, 1)
-        self.state[2] = MOTOR_STATE_BKWD
+#         self._set_motor(2, speed, 1)
+#         self.state[2] = MOTOR_STATE_BKWD
 
-        self.state[0] = MOTOR_STATE_BKWD
-        if self.buzzer != None:
-            self.buzzer.on()
+#         self.state[0] = MOTOR_STATE_BKWD
+#         if self.buzzer != None:
+#             self.buzzer.on()
 
-    def turn_right(self, speed=MOTOR_DEF_SPEED):
-        # throws I2CException
-        if self.state[0] == MOTOR_STATE_RIGHT:
-            return
-        if self.buzzer != None:
-            self.buzzer.off()
-        self.state[0] = MOTOR_STATE_UNK
+#     def turn_right(self, speed=MOTOR_DEF_SPEED):
+#         # throws I2CException
+#         if self.state[0] == MOTOR_STATE_RIGHT:
+#             return
+#         if self.buzzer != None:
+#             self.buzzer.off()
+#         self.state[0] = MOTOR_STATE_UNK
 
-        self._set_motor(1, speed, 0)
-        self.state[1] = MOTOR_STATE_FWD
+#         self._set_motor(1, speed, 0)
+#         self.state[1] = MOTOR_STATE_FWD
 
-        sleep_ms(5)
+#         sleep_ms(5)
 
-        self._set_motor(2, speed, 1)
-        self.state[2] = MOTOR_STATE_BKWD
+#         self._set_motor(2, speed, 1)
+#         self.state[2] = MOTOR_STATE_BKWD
 
-        self.state[0] = MOTOR_STATE_RIGHT
+#         self.state[0] = MOTOR_STATE_RIGHT
 
-    def turn_left(self, speed=MOTOR_DEF_SPEED):
-        # throws I2CException
-        if self.state[0] == MOTOR_STATE_LEFT:
-            return
+#     def turn_left(self, speed=MOTOR_DEF_SPEED):
+#         # throws I2CException
+#         if self.state[0] == MOTOR_STATE_LEFT:
+#             return
 
-        if self.buzzer != None:
-            self.buzzer.off()
-        self.state[0] = MOTOR_STATE_UNK
+#         if self.buzzer != None:
+#             self.buzzer.off()
+#         self.state[0] = MOTOR_STATE_UNK
 
-        self._set_motor(1, speed, 1)
-        self.state[1] = MOTOR_STATE_BKWD
+#         self._set_motor(1, speed, 1)
+#         self.state[1] = MOTOR_STATE_BKWD
 
-        self._set_motor(2, speed, 0)
-        self.state[2] = MOTOR_STATE_FWD
+#         self._set_motor(2, speed, 0)
+#         self.state[2] = MOTOR_STATE_FWD
         
-        self.state[0] = MOTOR_STATE_LEFT
+#         self.state[0] = MOTOR_STATE_LEFT
 
-    def stop_motors(self):
-        # throws I2CException
-        if self.state[0] == MOTOR_STATE_STOP:
-            return
+#     def stop_motors(self):
+#         # throws I2CException
+#         if self.state[0] == MOTOR_STATE_STOP:
+#             return
 
-        if self.buzzer != None:
-            self.buzzer.off()
-        self.state[0] = MOTOR_STATE_UNK
+#         if self.buzzer != None:
+#             self.buzzer.off()
+#         self.state[0] = MOTOR_STATE_UNK
 
-        self._set_motor(1, 0, 0)
-        self.state[1] = MOTOR_STATE_STOP
+#         self._set_motor(1, 0, 0)
+#         self.state[1] = MOTOR_STATE_STOP
 
-        self._set_motor(2, 0, 0)
-        self.state[2] = MOTOR_STATE_STOP
+#         self._set_motor(2, 0, 0)
+#         self.state[2] = MOTOR_STATE_STOP
 
-        self.state[0] = MOTOR_STATE_STOP
+#         self.state[0] = MOTOR_STATE_STOP
 
-    def stop_force(self):
-        # throws I2CException
-        if self.buzzer != None:
-            self.buzzer.off()
-        self.state[0] = MOTOR_STATE_UNK
+#     def stop_force(self):
+#         # throws I2CException
+#         if self.buzzer != None:
+#             self.buzzer.off()
+#         self.state[0] = MOTOR_STATE_UNK
 
-        self._set_motor(1, 0, 0)
-        self.state[1] = MOTOR_STATE_STOP
+#         self._set_motor(1, 0, 0)
+#         self.state[1] = MOTOR_STATE_STOP
 
-        self._set_motor(2, 0, 0)
-        self.state[2] = MOTOR_STATE_STOP
+#         self._set_motor(2, 0, 0)
+#         self.state[2] = MOTOR_STATE_STOP
 
-        self.state[0] = MOTOR_STATE_STOP
+#         self.state[0] = MOTOR_STATE_STOP
 
-    def repeat(self):
-        # FIXME: Handle repeat code
-        pass
+#     def repeat(self):
+#         # FIXME: Handle repeat code
+#         pass
 
 #############################################################################
 # OLED

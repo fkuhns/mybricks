@@ -15,27 +15,27 @@ from os import uname
 ## Throws OSError exception e, with e.errno set appropriately
 
 ##########Motor Driver Library##########
-class MotorDriver:
-    def __init__(self, i2c):
-        self.i2c = i2c
+# class MotorDriver:
+#     def __init__(self, i2c):
+#         self.i2c = i2c
         
-    def servo(self, servoNumber, angle):
-        buf = bytearray(5)
-        buf[0] = 0x26
-        buf[1] = servoNumber + 2
-        buf[2] = 0
-        buf[3] = angle
-        buf[4] = buf[1] ^ buf[2] ^ buf[3]
-        self.i2c.writeto(0x22,buf) # FIXME: , False)
+#     def servo(self, servoNumber, angle):
+#         buf = bytearray(5)
+#         buf[0] = 0x26
+#         buf[1] = servoNumber + 2
+#         buf[2] = 0
+#         buf[3] = angle
+#         buf[4] = buf[1] ^ buf[2] ^ buf[3]
+#         self.i2c.writeto(0x22,buf) # FIXME: , False)
         
-    def dc(self, dcNumber, speed, direction):
-        buf = bytearray(5)
-        buf[0] = 0x26
-        buf[1] = dcNumber
-        buf[2] = speed
-        buf[3] = direction
-        buf[4] = buf[1] ^ buf[2] ^ buf[3]
-        self.i2c.writeto(0x22, buf) # FIXME: , False)
+#     def dc(self, dcNumber, speed, direction):
+#         buf = bytearray(5)
+#         buf[0] = 0x26
+#         buf[1] = dcNumber
+#         buf[2] = speed
+#         buf[3] = direction
+#         buf[4] = buf[1] ^ buf[2] ^ buf[3]
+#         self.i2c.writeto(0x22, buf) # FIXME: , False)
     
 ##########SHTC3 Library##########
 class SHTC3:

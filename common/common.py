@@ -1,5 +1,6 @@
 from machine import Pin, enable_irq, disable_irq, ADC
 from utime import sleep, ticks_ms, ticks_diff
+from array import array
 
 #############################################################################
 # GPIO Default pin assignments
@@ -203,3 +204,67 @@ ADC_CONV_FACTOR = GPIO_VOLT_MAX / ((1 << 16) - 1)
 
 # def adc_volt2Raw(volt):
 #     return volt/ADC_CONV_FACTOR
+
+#############################################################################
+# Ring Buffer
+# Fixed size, backed by an int array. Each entry is either a single int or a
+# tuple of ints, set by the init value: RingBuffer(10, 0) or RingBuffer(10, (0, 0)).
+# put() returns False when full (never overwrites), get() returns None when empty.
+# Safe for one producer (e.g. an ISR) and one consumer without disabling irqs:
+# put() only moves head, get() only moves tail. One slot is kept unused so
+# full and empty can be told apart without a shared count.
+# put() with a single int does not allocate, so it is safe to call from an ISR.
+#############################################################################
+RING_DEF_SIZE = 10
+
+class RingBuffer():
+    def __init__(self, size=RING_DEF_SIZE, init=0):
+        if isinstance(init, int):
+            self.width = 1
+            init = (init,)
+        else:
+            self.width = len(init)
+        self.slots = size + 1 # one unused slot
+        self.buf   = array('i', init * self.slots)
+        self.head  = 0 # next slot to write, only changed by put()
+        self.tail  = 0 # next slot to read, only changed by get()
+
+    def put(self, item):
+        nxt = self.head + 1
+        if nxt == self.slots:
+            nxt = 0
+        if nxt == self.tail:
+            return False # full
+        i = self.head * self.width
+        if self.width == 1:
+            self.buf[i] = item
+        else:
+            for j in range(self.width):
+                self.buf[i + j] = item[j]
+        self.head = nxt
+        return True
+
+    def get(self):
+        if self.tail == self.head:
+            return None # empty
+        i = self.tail * self.width
+        if self.width == 1:
+            item = self.buf[i]
+        else:
+            item = tuple(self.buf[i:i + self.width])
+        nxt = self.tail + 1
+        self.tail = 0 if nxt == self.slots else nxt
+        return item
+
+    def clear(self):
+        # consumer side only
+        self.tail = self.head
+
+    def is_empty(self):
+        return self.tail == self.head
+
+    def is_full(self):
+        return (self.head + 1) % self.slots == self.tail
+
+    def __len__(self):
+        return (self.head - self.tail) % self.slots
