@@ -6,7 +6,7 @@ from array import array
 from common import Button, Pot
 from usonic import UltrasonicSensor, UltraSonicTimeout
 from i2c_dev import I2cCtl, OledI2c, I2CException
-from motor import CarMotors, MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_RIGHT, MOTOR_CMD_STOP, MOTOR_CMD_NONE, MOTOR_CMD_STOP_FORCE
+from motor import CarMotors, MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_RIGHT, MOTOR_CMD_STOP, MOTOR_CMD_NOOP, MOTOR_CMD_STOP_FORCE
 
 
 MODE_DIST = const( 1) # bin 0_0001, 0x01
@@ -41,11 +41,15 @@ class MyApp():
 
     def __init__(self, mode):
         self.mode = mode
-        self.turn_delay = TURN_DELAY_MS
+        #self.turn_delay = TURN_DELAY_MS
 
-        self.init_i2c_env()
-        self.init_ir_env()
-        self.init_dist()
+        self.init_i2c_env() # need for motors and oled
+
+        if self.mode & MODE_IR:
+            self.init_ir_env()
+
+        if self.mode & MODE_DIST:
+            self.init_dist()
         
         if self.mode & MODE_BUTT:
             self.butt = Button()
@@ -61,9 +65,11 @@ class MyApp():
     # I2C 
     #############################################################################
     def init_i2c_env(self):
+        # I2C errors and bus resets are handled by the bus, below this level
         self.i2ctl  = I2cCtl(debug=0)
-        self.oled   = OledI2c(self.i2ctl._i2c[I2C0_ID]["OBJ"], "FK Car", debug=0)
-        self.motors = CarMotors(self.i2ctl._i2c[I2C0_ID]["OBJ"],
+        bus         = self.i2ctl.bus(I2C0_ID)
+        self.oled   = OledI2c(bus, "FK Car", debug=0)
+        self.motors = CarMotors(bus,
                                 self.mode & MODE_BUZZ, 
                                 debug=0)
 
@@ -72,43 +78,6 @@ class MyApp():
             print("MyAPP: OLED ",  self.oled._octrl)
             print("MyAPP: Motors ",self.motors.mctrl)
 
-    def i2c_error(self, id=I2C0_ID):
-        # No exceptions are raised (pretend like id will never == 1)
-        assert id == I2C0_ID, "I2C ID not equal to 0"
-
-        old_i2c = self.i2ctl.i2c(id)
-
-        # handle_error returns None if it hasn't or is unable to reset bus
-        # it does not raise or pass exceptions
-        new_i2c = self.i2ctl.handle_err(id)
-        if not new_i2c:
-            # No change to i2c object
-            if _DEBUG:
-                print("i2c_error: No change to i2c, has not passed threshold or err")
-            return
-
-        # motors first: OLED rebind talks to the device
-        # No exceptions are raised or passed
-        # rebind either returns None of no changes were made ot a new obj
-        if not self.motors.rebind(new_i2c):
-            # can not update motors so stay on the old i2c bus
-            self.i2ctl.set_i2c(old_i2c, id)
-            if _DEBUG:
-                print("i2c_error: exception rebinding motors!")
-            return
-
-        # No exceptions are raised or passed
-        if not self.oled.rebind(new_i2c):
-            if _DEBUG:
-                print("i2c_error: exception rebinding oled!")
-            self.i2ctl.set_i2c(old_i2c, id)
-            self.motors.rebind(old_i2c)
-
-        if _DEBUG:
-            print("MyApp.i2c_error: I2C ", new_i2c)
-            print("MyAPP.i2c_error: OLED ",  self.oled._octrl)
-            print("MyAPP.i2c_error: Motors ",self.motors.mctrl)
-
     #############################################################################
     # OLED 
     #############################################################################
@@ -116,9 +85,9 @@ class MyApp():
         try:
             self.oled.show()
         except I2CException as e:
+            # the bus has already retried and reset if needed
             if _DEBUG:
-                print("\tDisplay: I2C exception, OLED show, reset I2C: ", e)
-            self.i2c_error()
+                print("\tDisplay: I2C exception, OLED show: ", e)
 
     #############################################################################
     # IR
@@ -139,7 +108,7 @@ class MyApp():
                 IR_RX.number_left:  MOTOR_CMD_LEFT,
                 IR_RX.number_right: MOTOR_CMD_RIGHT,
                 IR_RX.number_ok:    MOTOR_CMD_STOP,
-                IR_RX.REPEAT:       MOTOR_CMD_NONE,
+                IR_RX.REPEAT:       MOTOR_CMD_NOOP,
             } # no mapping for MOTOR_CMD_STOP_FORCE
         else:
             self._ir_ctrl = None
@@ -334,7 +303,7 @@ class MyApp():
 
                 if self.mode & MODE_POT:
                     assert self.pot is not None
-                    self.turn_delay = self.pot.get_value()
+                    self.motors.set_turn_ms(self.pot.get_value())
 
                 if self.mode & MODE_DIST:
                     self.run_dist()
@@ -345,6 +314,7 @@ class MyApp():
                 # Assuming there will motor commands to process
                 # either from IR, Dist or both
                 self.motors.run_cmds()
+                sleep(1)
 
             except KeyboardInterrupt:
                 if _DEBUG:
@@ -359,8 +329,7 @@ class MyApp():
                     print("run caught exception, ignoring: ", e)
 
     def shutdown(self):
-        self.motors.add_cmd(MOTOR_CMD_STOP_FORCE)
-        # self._motor(self.motors.stop_force)
+        self.motors.reset()
         if self.mode & MODE_DIST:
             self.dist_last = -1
             self.turn_end  = None

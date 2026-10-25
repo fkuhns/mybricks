@@ -6,8 +6,6 @@ from common import RingBuffer
 
 MOTOR_DEF_SPEED  = 80
 
-MOTOR_MAX_TRIES = 3 # I2C_MAX_TRIES
-
 MOTOR_STATE_FWD   = "Forward"
 MOTOR_STATE_BKWD  = "Backward"
 MOTOR_STATE_LEFT  = "Left"
@@ -16,16 +14,29 @@ MOTOR_STATE_STOP  = "Stopped"
 MOTOR_STATE_INIT  = "Init"
 MOTOR_STATE_UNK   = "Unknown"
 
-MOTOR_CMD_NONE    = -1
-MOTOR_CMD_FORWARD = 0
-MOTOR_CMD_REVERSE = 1
-MOTOR_CMD_LEFT    = 2
-MOTOR_CMD_RIGHT   = 3
-MOTOR_CMD_STOP    = 4
-MOTOR_CMD_STOP_FORCE = 5
-MOTOR_CMD_MAX     = 6
+MOTOR_CMD_NOOP       = 0
+MOTOR_CMD_FORWARD    = 1
+MOTOR_CMD_REVERSE    = 2
+MOTOR_CMD_LEFT       = 3
+MOTOR_CMD_RIGHT      = 4
+MOTOR_CMD_STOP       = 5
+MOTOR_CMD_STOP_FORCE = 6
+MOTOR_CMD_MAX        = 6
 
-MOTOR_TURN_DELAY_MS = 500
+MOTOR_INDX_CMD    = 0
+MOTOR_INDX_ARG    = 1
+MOTOR_INDX_DELAY  = 2
+MOTOR_INDX_COUNT  = 3
+
+MOTOR_TURN_DELAY_MS = 500 # default turn time, see set_turn_ms()
+MOTOR_INTER_CMD_MS  =   0
+MOTOR_RETRY_MS      =  10 # wait before retrying a failed command
+MOTOR_CMD_MAX_TRIES =   3 # each try is I2C_MAX_TRIES I2C writes
+
+# Turn calibration: ms = MOTOR_TURN_T0_MS + degrees / MOTOR_TURN_DEG_PER_MS
+# FIXME: placeholders, measure at MOTOR_DEF_SPEED
+MOTOR_TURN_T0_MS      = 0   # motor spin up lag
+MOTOR_TURN_DEG_PER_MS = 0.18 # 90 deg in 500 ms
 
 class MotorDriver:
     def __init__(self, i2c, addr=0x22):
@@ -48,75 +59,53 @@ class MotorDriver:
         buf[2] = speed
         buf[3] = direction
         buf[4] = buf[1] ^ buf[2] ^ buf[3]
-        self.i2c.writeto(0x22, buf) # send Stop by default
+        self.i2c.writeto(self.addr, buf) # send Stop by default
 
 class CarMotors():
-    def __init__(self, i2c, buzz=True, debug=0):
+    
+    def __init__(self, bus, buzz=True, debug=0):
+        # bus is an I2cBus, it retries and resets the bus on errors
         self.DEBUG = debug
-        self.i2c = i2c
+        self.i2c = bus
         # state = [Car level, left motor, right motor]
         self.state = [MOTOR_STATE_INIT, MOTOR_STATE_INIT, MOTOR_STATE_INIT]
         if buzz:
             self.buzzer = Buzzer(debug=0)
         else:
             self.buzzer = None
-        self.mctrl = MotorDriver(self.i2c) # FIXME: self._init_motors()
-        self.rbuf = RingBuffer(size=10, init=(MOTOR_CMD_NONE, 0, 0)) # type: ignore
+        self.mctrl = MotorDriver(self.i2c)
+
+        # Command buffer, entry tuple = (CMD, ARG, DELAY, COUNT)
+        #   CMD   = one of the MOTOR_CMD_* values
+        #   ARG   = integer, command argument (degrees for turns), 0 = default
+        #   DELAY = integer, ms to wait after the previous command ran
+        #   COUNT = integer, number of times cmd was tried without success
+        self.rbuf = RingBuffer(size=10, init=(MOTOR_CMD_NOOP, 0, 0, 0)) # type: ignore
+        self._last_run = ticks_ms() # when the last command was run or tried
+        self.turn_ms   = MOTOR_TURN_DELAY_MS
         self.actions = {
                 # Command: function,
-                MOTOR_CMD_FORWARD: lambda: self.forward(),
-                MOTOR_CMD_REVERSE: lambda: self.backward(),
-                MOTOR_CMD_LEFT:    lambda: self.turn_left(),
-                MOTOR_CMD_RIGHT:   lambda: self.turn_right(),
-                MOTOR_CMD_STOP:    lambda: self.stop_motors(),
-
+                MOTOR_CMD_NOOP:       lambda: None,
+                MOTOR_CMD_FORWARD:    lambda: self.forward(),
+                MOTOR_CMD_REVERSE:    lambda: self.backward(),
+                MOTOR_CMD_LEFT:       lambda: self.turn_left(),
+                MOTOR_CMD_RIGHT:      lambda: self.turn_right(),
+                MOTOR_CMD_STOP:       lambda: self.stop_motors(),
+                MOTOR_CMD_STOP_FORCE: lambda: self.stop_force(),
             }
-
-    # def _init_motors(self):
-    #     self._mctrl = MotorDriver(self.i2c)
-    #     # FIXME: sleep_ms(5)
-    #     # FIXME: self.stop_force()
-
-    def rebind(self, i2c):
-        self.i2c = i2c
-        self.mctrl = MotorDriver(self.i2c) # FIXME:self._init_motors()
-        return True
 
     def __str__(self):
         return "Motors: state {}, M1 {}, M2 {}".format(self.state[0], self.state[1], self.state[2])
 
-    def _set_motor(self, mid, speed, dir):
-        # throws I2CException
-        # Motor IDs: 1 (Left), 2 (Right)
-        # Speed: 0 (Stop), Range 1-255, Default 80
-        # Direction: 0=Forward, 1=Reverse
-        if self.DEBUG:
-            print("_set_motor: {}, {}, {}".format(mid, speed, dir))
+    # def _set_motor(self, mid, speed, dir):
+    #     # throws I2CException
+    #     # Motor IDs: 1 (Left), 2 (Right)
+    #     # Speed: 0 (Stop), Range 1-255, Default 80
+    #     # Direction: 0=Forward, 1=Reverse
+    #     if self.DEBUG:
+    #         print("_set_motor: {}, {}, {}".format(mid, speed, dir))
 
-        last_error = None
-        for i in range(MOTOR_MAX_TRIES):
-            try:
-                self.mctrl.dc(mid, speed, dir)
-                return
-            except OSError as e:
-                last_error = e
-                if self.DEBUG:
-                    print("_set_motor: Set_motor OSError: ", e)
-
-            except Exception as e:
-                last_error = e
-                if self.DEBUG:
-                    print("_set_motor Unexpected exception ", e)
-
-            sleep_ms(5) # FIXME: do I need this sleep_ms(15) 
-
-            if self.DEBUG:
-                print("set_motor loop iteration ", i, " failed")
-        else:
-            raise I2CException(
-                "set_motor %d (state %s/%s, dir %d) failed after %d tries: %s"
-                % (mid, self.state[0], self.state[mid], dir, MOTOR_MAX_TRIES, last_error)
-            )
+    #     self.mctrl.dc(mid, speed, dir)
 
     def forward(self, speed=MOTOR_DEF_SPEED):
         # throws I2CException
@@ -126,10 +115,10 @@ class CarMotors():
             self.buzzer.off()
 
         self.state[0] = MOTOR_STATE_UNK
-        self._set_motor(1, speed, 0)
+        self.mctrl.dc(1, speed, 0)
         self.state[1] = MOTOR_STATE_FWD
 
-        self._set_motor(2, speed, 0)
+        self.mctrl.dc(2, speed, 0)
         self.state[2] = MOTOR_STATE_FWD
         self.state[0] = MOTOR_STATE_FWD
 
@@ -140,10 +129,10 @@ class CarMotors():
         # FIXME: Should I first stop the buzzer if its on?
 
         self.state[0] = MOTOR_STATE_UNK
-        self._set_motor(1, speed, 1)
+        self.mctrl.dc(1, speed, 1)
         self.state[1] = MOTOR_STATE_BKWD
 
-        self._set_motor(2, speed, 1)
+        self.mctrl.dc(2, speed, 1)
         self.state[2] = MOTOR_STATE_BKWD
         self.state[0] = MOTOR_STATE_BKWD
 
@@ -158,10 +147,10 @@ class CarMotors():
             self.buzzer.off()
 
         self.state[0] = MOTOR_STATE_UNK
-        self._set_motor(1, speed, 0)
+        self.mctrl.dc(1, speed, 0)
         self.state[1] = MOTOR_STATE_FWD
 
-        self._set_motor(2, speed, 1)
+        self.mctrl.dc(2, speed, 1)
         self.state[2] = MOTOR_STATE_BKWD
         self.state[0] = MOTOR_STATE_RIGHT
 
@@ -173,10 +162,10 @@ class CarMotors():
             self.buzzer.off()
 
         self.state[0] = MOTOR_STATE_UNK
-        self._set_motor(1, speed, 1)
+        self.mctrl.dc(1, speed, 1)
         self.state[1] = MOTOR_STATE_BKWD
 
-        self._set_motor(2, speed, 0)
+        self.mctrl.dc(2, speed, 0)
         self.state[2] = MOTOR_STATE_FWD
         self.state[0] = MOTOR_STATE_LEFT
 
@@ -188,10 +177,10 @@ class CarMotors():
             self.buzzer.off()
 
         self.state[0] = MOTOR_STATE_UNK
-        self._set_motor(1, 0, 0)
+        self.mctrl.dc(1, 0, 0)
         self.state[1] = MOTOR_STATE_STOP
 
-        self._set_motor(2, 0, 0)
+        self.mctrl.dc(2, 0, 0)
         self.state[2] = MOTOR_STATE_STOP
         self.state[0] = MOTOR_STATE_STOP
 
@@ -201,10 +190,10 @@ class CarMotors():
             self.buzzer.off()
 
         self.state[0] = MOTOR_STATE_UNK
-        self._set_motor(1, 0, 0)
+        self.mctrl.dc(1, 0, 0)
         self.state[1] = MOTOR_STATE_STOP
 
-        self._set_motor(2, 0, 0)
+        self.mctrl.dc(2, 0, 0)
         self.state[2] = MOTOR_STATE_STOP
         self.state[0] = MOTOR_STATE_STOP
 
@@ -212,23 +201,61 @@ class CarMotors():
         # FIXME: Handle repeat code
         pass
 
-    def add_cmd(self, cmd):
-        if cmd == MOTOR_CMD_NONE or cmd == MOTOR_CMD_MAX:
-            return
-        
-        if cmd > MOTOR_CMD_MAX or cmd < MOTOR_CMD_NONE:
+    def reset(self):
+        self.rbuf.clear()
+        self.stop_force()
+
+    def set_turn_ms(self, ms):
+        # turn time used when a turn has no angle
+        self.turn_ms = ms
+
+    def ms_for_angle(self, deg):
+        return MOTOR_TURN_T0_MS + int(deg / MOTOR_TURN_DEG_PER_MS)
+
+    def add_cmd(self, cmd, arg=0):
+        # Returns False if the command did not fit in the buffer
+        if cmd == MOTOR_CMD_NOOP:
+            return True
+
+        if cmd > MOTOR_CMD_MAX or cmd < MOTOR_CMD_NOOP:
             raise RuntimeError("Invalid motor command ", cmd)
 
-        self.rbuf.put((cmd, 0, 0))
+        if cmd == MOTOR_CMD_LEFT or cmd == MOTOR_CMD_RIGHT:
+            # a turn is only queued with its stop, never without it
+            if self.rbuf.free() < 2:
+                return False
+            ms = self.ms_for_angle(arg) if arg else self.turn_ms
+            self.rbuf.put((cmd, arg, MOTOR_INTER_CMD_MS, 0))
+            self.rbuf.put((MOTOR_CMD_STOP, 0, ms, 0))
+            return True
 
-        if cmd == MOTOR_CMD_LEFT:
-            self.rbuf.put((MOTOR_CMD_STOP, ticks_ms(), MOTOR_TURN_DELAY_MS))
-        elif cmd == MOTOR_CMD_RIGHT:
-            self.rbuf.put((MOTOR_CMD_STOP, ticks_ms(), MOTOR_TURN_DELAY_MS))
-        
+        return self.rbuf.put((cmd, arg, MOTOR_INTER_CMD_MS, 0))
+
     def run_cmds(self):
         while not self.rbuf.is_empty():
-            item = self.rbuf.get()
-            if not item or  ticks_diff(ticks_ms(), item[1]) < item[3]: # type: ignore
+            item = self.rbuf.peek()
+            if ticks_diff(ticks_ms(), self._last_run) < item[MOTOR_INDX_DELAY]: # type: ignore
                 break
-            self.actions[item[0]]() # type: ignore
+
+            try:
+                self.actions[item[MOTOR_INDX_CMD]]() # type: ignore
+                self._last_run = ticks_ms()
+                self.rbuf.advance_tail()
+            except I2CException as e:
+                self._last_run = ticks_ms()
+                count = item[MOTOR_INDX_COUNT] + 1 # type: ignore
+                if self.DEBUG:
+                    print("run_cmds I2CException, try ", count, ": ", e)
+                if count >= MOTOR_CMD_MAX_TRIES:
+                    # FIXME: a dropped stop leaves the car moving
+                    self.rbuf.advance_tail() # delete command
+                else:
+                    self.rbuf.update_tail((item[MOTOR_INDX_CMD], # type: ignore
+                                           item[MOTOR_INDX_ARG], # type: ignore
+                                           MOTOR_RETRY_MS,
+                                           count))
+                break
+            except Exception as e:
+                print("run_cmds: Unexpected exception ", e)
+                self.rbuf.advance_tail() # do not retry it forever
+                raise

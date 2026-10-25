@@ -210,9 +210,11 @@ ADC_CONV_FACTOR = GPIO_VOLT_MAX / ((1 << 16) - 1)
 # Fixed size, backed by an int array. Each entry is either a single int or a
 # tuple of ints, set by the init value: RingBuffer(10, 0) or RingBuffer(10, (0, 0)).
 # put() returns False when full (never overwrites), get() returns None when empty.
-# Safe for one producer (e.g. an ISR) and one consumer without disabling irqs:
-# put() only moves head, get() only moves tail. One slot is kept unused so
-# full and empty can be told apart without a shared count.
+# Safe for one producer (e.g. an ISR) and one consumer without disabling irq:
+# put() only moves head; get() and advance_tail() only move tail. peek() and
+# update_tail() are consumer side only, the producer never touches the tail
+# slot while it holds an item. One slot is kept unused so full and empty can
+# be told apart without a shared count.
 # put() with a single int does not allocate, so it is safe to call from an ISR.
 #############################################################################
 RING_DEF_SIZE = 10
@@ -229,6 +231,49 @@ class RingBuffer():
         self.head  = 0 # next slot to write, only changed by put()
         self.tail  = 0 # next slot to read, only changed by get()
 
+    def peek(self):
+        if self.tail == self.head:
+            return None # empty
+        
+        i = self.tail * self.width
+        if self.width == 1:
+            item = self.buf[i]
+        else:
+            item = tuple(self.buf[i:i + self.width])
+        return item
+    
+    def advance_tail(self):
+        # called if the item returned from peek was used.
+        if self.tail == self.head:
+            return # empty
+        nxt = self.tail + 1
+        self.tail = 0 if nxt == self.slots else nxt
+
+    def update_tail(self, item):
+        # Overwrite the tail item, for non-empty buf
+        if self.tail == self.head:
+            return # empty
+        if self.width == 1:
+            self.buf[self.tail] = item
+            return
+
+        # scale index by the width
+        i = self.tail * self.width
+        for j in range(self.width):
+            self.buf[i+j] = item[j]
+
+    def get(self):
+        if self.tail == self.head:
+            return None # empty
+        i = self.tail * self.width
+        if self.width == 1:
+            item = self.buf[i]
+        else:
+            item = tuple(self.buf[i:i + self.width])
+        nxt = self.tail + 1
+        self.tail = 0 if nxt == self.slots else nxt
+        return item
+
     def put(self, item):
         nxt = self.head + 1
         if nxt == self.slots:
@@ -244,18 +289,6 @@ class RingBuffer():
         self.head = nxt
         return True
 
-    def get(self):
-        if self.tail == self.head:
-            return None # empty
-        i = self.tail * self.width
-        if self.width == 1:
-            item = self.buf[i]
-        else:
-            item = tuple(self.buf[i:i + self.width])
-        nxt = self.tail + 1
-        self.tail = 0 if nxt == self.slots else nxt
-        return item
-
     def clear(self):
         # consumer side only
         self.tail = self.head
@@ -268,3 +301,7 @@ class RingBuffer():
 
     def __len__(self):
         return (self.head - self.tail) % self.slots
+
+    def free(self):
+        # number of items that can still be put
+        return self.slots - 1 - len(self)
