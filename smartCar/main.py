@@ -5,7 +5,7 @@ from utime import sleep_ms, ticks_ms, ticks_diff, ticks_add, sleep
 from array import array
 from common import Button, Pot
 from usonic import UltrasonicSensor, UltraSonicTimeout
-from i2c_dev import I2cCtl, OledI2c, I2CException
+from i2c_dev import I2cCtl, OledI2c, I2cException
 from motor import CarMotors, MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_RIGHT, MOTOR_CMD_STOP, MOTOR_CMD_NOOP, MOTOR_CMD_STOP_FORCE
 
 
@@ -26,7 +26,13 @@ DIST_INTERVAL_MS = 1000 # FIXME:100 # HC-SR04 needs >= 60ms between pings
 
 TURN_DELAY_MS    = 500 # FIXME: default turn time when the pot is not used
 
-_DEBUG = const(1)
+_DEBUG     = const(1)
+_DST_DEBUG = const(1)
+_I2C_DEBUG = const(1)
+_MTR_DEBUG = const(1)
+_OLD_DEBUG = const(0)
+_IR_DEBUG  = const(0)
+
 
 class AppException(Exception):
     pass
@@ -66,14 +72,14 @@ class MyApp():
     #############################################################################
     def init_i2c_env(self):
         # I2C errors and bus resets are handled by the bus, below this level
-        self.i2ctl  = I2cCtl(debug=0)
+        self.i2ctl  = I2cCtl(debug=_I2C_DEBUG)
         bus         = self.i2ctl.bus(I2C0_ID)
-        self.oled   = OledI2c(bus, "FK Car", debug=0)
+        self.oled   = OledI2c(bus, "FK Car", debug=_OLD_DEBUG)
         self.motors = CarMotors(bus,
                                 self.mode & MODE_BUZZ, 
-                                debug=0)
+                                debug=_MTR_DEBUG)
 
-        if _DEBUG:
+        if _I2C_DEBUG:
             print("MyApp: I2C environment up")
             print("MyAPP: OLED ",  self.oled._octrl)
             print("MyAPP: Motors ",self.motors.mctrl)
@@ -84,9 +90,9 @@ class MyApp():
     def display(self):
         try:
             self.oled.show()
-        except I2CException as e:
+        except I2cException as e:
             # the bus has already retried and reset if needed
-            if _DEBUG:
+            if _OLD_DEBUG:
                 print("\tDisplay: I2C exception, OLED show: ", e)
 
     #############################################################################
@@ -113,7 +119,7 @@ class MyApp():
         else:
             self._ir_ctrl = None
 
-        if _DEBUG:
+        if _IR_DEBUG:
             print("MyApp : IR up: ", self._ir_ctrl)
 
     def ir_callback(self, cmd, addr, _):
@@ -121,7 +127,7 @@ class MyApp():
         # FIXME: Add command queue
         self._ir_cmd = cmd
         self._ir_rx  = True
-        if _DEBUG:
+        if _IR_DEBUG:
             print('# IR Callback -> Cmd: 0x{:02x} Addr: 0x{:04x}'.format(cmd, addr))
 
     def ir_err(self, code):
@@ -138,30 +144,16 @@ class MyApp():
         # Errors are < -1 (repeat cmd), a 0 means no errors
         if  code < IR_RX.REPEAT:
             try:
-                if _DEBUG:
+                if _IR_DEBUG:
                     print("IR Error: ", MyApp._IR_ERRS[code])
                 self.oled.update_row3(MyApp._IR_ERRS[code])
             except KeyError:
                 self.oled.update_row3("bad code")
 
-    # def _motor(self, fn):
-    #     # Helper for updating drive state
-    #     if _DEBUG:
-    #         print("Set motors: before: ", self.motors)
-    #     try:
-    #         fn()
-    #     except I2CException as e:
-    #         if _DEBUG:
-    #             print("\t** motor I2C exception, reset I2C: \n\t", e)
-    #             print(self.motors)
-    #         self.i2c_error()
-    #     if _DEBUG:
-    #         print("\tSet motors  after: ", self.motors)
-
     def process_ir(self, cmd):
         motor_cmd = self.ir_cmd_map[cmd]
         if motor_cmd is None:
-            if _DEBUG:
+            if _IR_DEBUG:
                 print("process_ir: Invalid command ", cmd)
             self.oled.update_row3("IR cmd error")
             return
@@ -188,10 +180,10 @@ class MyApp():
 
         try:
             self.process_ir(code) 
-            self.display()
+            # FIXME: self.display()
         # I2CExceptions & OSError are handled in process_ir and display
         except Exception as e:
-            if _DEBUG:
+            if _IR_DEBUG:
                 print("** run_ir: General exception, ignoring: ", e)
 
     #############################################################################
@@ -208,11 +200,8 @@ class MyApp():
         self.dist_ticks_last =  0
         self.turn_end        = None # ticks_ms deadline while turning, else None
 
-        if _DEBUG:
-            if self.mode & MODE_DIST:
-                print("MyApp: Distance env up")
-            else:
-                print("Myapp: Distance environment not initialized")
+        if _DST_DEBUG and (self.mode & MODE_DIST):
+            print("MyApp: Distance env up")
 
     def process_dist(self):
         try:
@@ -220,25 +209,25 @@ class MyApp():
             assert self.sonic is not None
             dist = self.sonic.get_distance() # distance in inches
         except UltraSonicTimeout:
-            if _DEBUG:
+            if _DST_DEBUG:
                 print("process_dist: echo not received in timeout")
             # only redraw on the first timeout in a row
             if self.dist_last != -1:
                 self.dist_last = -1
                 self.oled.update_row2("Dist: --")
-                self.display()
+                # FIXME: self.display()
             return -1.0
 
         if abs(dist - self.dist_last) < self.dist_min_change:
             return dist
 
-        # if _DEBUG:
+        # if _DST_DEBUG:
         #     print("process_dist dist = %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
 
         self.dist_last = dist
         
         self.oled.update_row2("%d\' %.2f\"" % (dist // 12, dist % 12))
-        self.display()
+        # FIXME: self.display()
 
         return dist
 
@@ -262,7 +251,7 @@ class MyApp():
         self.dist_ticks_last = t
         dist = self.process_dist()
         if dist < 0:
-            if _DEBUG:
+            if _DST_DEBUG:
                 print("\trun_dist: unknown distance, timeout: ", dist)
             # FIXME: better would be checking previous distance to determine likelihood
             # that the timeout means "infinite"
@@ -311,9 +300,10 @@ class MyApp():
                 if self.mode & MODE_IR:
                     self.run_ir()
 
-                # Assuming there will motor commands to process
+                # Assume there are motor commands to process
                 # either from IR, Dist or both
                 self.motors.run_cmds()
+                # FIXME: self.display()
                 sleep(1)
 
             except KeyboardInterrupt:
@@ -335,7 +325,7 @@ class MyApp():
             self.turn_end  = None
         sleep_ms(1)
         self.oled.init_buf()
-        self.display()
+        # FIXME: self.display()
         #self.oled.clear()
 
 #============================================================================

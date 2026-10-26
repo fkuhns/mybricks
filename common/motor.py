@@ -1,7 +1,7 @@
 from machine import I2C
 from buzzer import Buzzer
 from time import sleep_ms, ticks_ms, ticks_diff, ticks_add
-from i2c_dev import I2CException
+from i2c_dev import I2cException #, I2cBusException, I2cNackException
 from common import RingBuffer
 
 MOTOR_DEF_SPEED  = 80
@@ -66,14 +66,14 @@ class CarMotors():
     def __init__(self, bus, buzz=True, debug=0):
         # bus is an I2cBus, it retries and resets the bus on errors
         self.DEBUG = debug
-        self.i2c = bus
+        self.bus = bus
         # state = [Car level, left motor, right motor]
         self.state = [MOTOR_STATE_INIT, MOTOR_STATE_INIT, MOTOR_STATE_INIT]
         if buzz:
             self.buzzer = Buzzer(debug=0)
         else:
             self.buzzer = None
-        self.mctrl = MotorDriver(self.i2c)
+        self.mctrl = MotorDriver(self.bus)
 
         # Command buffer, entry tuple = (CMD, ARG, DELAY, COUNT)
         #   CMD   = one of the MOTOR_CMD_* values
@@ -234,18 +234,29 @@ class CarMotors():
     def run_cmds(self):
         while not self.rbuf.is_empty():
             item = self.rbuf.peek()
+            
             if ticks_diff(ticks_ms(), self._last_run) < item[MOTOR_INDX_DELAY]: # type: ignore
                 break
 
+            cmd = item[MOTOR_INDX_CMD] # type: ignore
+            if self.DEBUG>1:
+                print("CarMotor.run_cmds: cmd ", cmd)
+
             try:
-                self.actions[item[MOTOR_INDX_CMD]]() # type: ignore
+                self.actions[cmd]() # type: ignore
                 self._last_run = ticks_ms()
                 self.rbuf.advance_tail()
-            except I2CException as e:
+                if self.DEBUG:
+                    print("CarMotor.run_cmds State %s (%s/%s)" % (self.state[0], self.state[1], self.state[2]))
+
+            except I2cException as e:
                 self._last_run = ticks_ms()
                 count = item[MOTOR_INDX_COUNT] + 1 # type: ignore
+
                 if self.DEBUG:
-                    print("run_cmds I2CException, try ", count, ": ", e)
+                    print("CarMotor.run_cmds I2CException, try ", count, ": ", e) # type: ignore
+                    print("\tState %s (%s/%s)" % (self.state[0], self.state[1], self.state[2]))
+
                 if count >= MOTOR_CMD_MAX_TRIES:
                     # FIXME: a dropped stop leaves the car moving
                     self.rbuf.advance_tail() # delete command
@@ -255,7 +266,8 @@ class CarMotors():
                                            MOTOR_RETRY_MS,
                                            count))
                 break
+
             except Exception as e:
-                print("run_cmds: Unexpected exception ", e)
+                print("CarMotor.run_cmds: Unexpected exception ", e)
                 self.rbuf.advance_tail() # do not retry it forever
                 raise

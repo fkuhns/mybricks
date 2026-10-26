@@ -31,7 +31,13 @@ MOTOR_STATE_STOP  = "Stopped"
 MOTOR_STATE_INIT  = "Init"
 MOTOR_STATE_UNK   = "Unknown"
 
-class I2CException(Exception):
+class I2cException(Exception):
+    pass
+
+class I2cBusException(I2cException):
+    pass
+
+class I2cNackException(I2cException):
     pass
 
 class I2cBus():
@@ -39,41 +45,72 @@ class I2cBus():
     # writes and reports each failure to I2cCtl, which may reset the bus.
     # A reset only swaps the machine.I2C object inside I2cCtl, so devices
     # never need to rebind. Raises I2CException when all tries fail.
+    # Assumes only 7-bit addresses are supported. So for a write there 
+    # should be 1 ack for the address frame and N ack's for the N data frames
+    # Although the I2C.writeto method only returns the number of data Bytes ack'ed
     def __init__(self, ctl, id=I2C0_ID):
         self._ctl = ctl
         self._id  = id
 
     def __str__(self):
-        return "I2cBus {}: {}".format(self._id, self._ctl._i2c[self._id]["OBJ"])
+        return "I2cBus {}: {}".format(self._id, self._ctl.i2c(self._id))
 
-    def _write(self, fn_name, addr, buf):
+    def _write(self, fname, addr, buf):
+        assert fname != None
+
         last_error = None
-        assert fn_name != None
+        acks    = 0
+        exp_ack = 0
+        if fname == "writeto":
+            exp_ack = len(buf)
+        else:
+            exp_ack = sum(len(x) for x in buf)
 
         for i in range(I2C_MAX_TRIES):
             try:
-                return getattr(self._ctl._i2c[self._id]["OBJ"], fn_name)(addr, buf)
+                acks = getattr(self._ctl.i2c(self._id), fname)(addr, buf)
+                if acks == exp_ack:
+                    if self._ctl.DEBUG > 1:
+                        print("I2cBus.%s ack %d == expected %d - success"% (fname, acks, exp_ack))
+                    return True
+
+                if self._ctl.DEBUG:
+                    print("I2cBus.%s try %d NACK: ack %d != expected %d" % (fname, i, acks, exp_ack))
+                    if exp_ack < 9: # max 8 bytes
+                        print("\tBuf = ", buf)
+                sleep_us(1_000) # FIXME: prefer to not have any sleep/delay here
+
             except OSError as e:
                 last_error = e
                 if self._ctl.DEBUG:
-                    print("I2cBus.{} 0x{:02x} try {} OSError: {}".format(fn_name, addr, i, e))
+                    print("I2cBus.{} 0x{:02x} try {} OSError: {}".format(fname, addr, i, e))
                 self._ctl.handle_err(self._id)
-        raise I2CException("I2C {} 0x{:02x} failed after {} tries: {}".format(
-                           fn_name, addr, I2C_MAX_TRIES, last_error))
+        # end of for loop
+        # report whatever the last error was
+        if acks != exp_ack:
+            raise I2cNackException("I2cBus.%s I2cNackException addr 0x%02x failed, RX acks %d != expected %d"
+                                    % (fname, addr, acks, exp_ack))
+        # else
+        raise I2cBusException("I2cBus.%s I2cBusException addr 0x%02x failed after %d tries: %s"
+                              % (fname, addr, I2C_MAX_TRIES, last_error))
 
     def writeto(self, addr, buf):
+        # returns the number of ACKs received, 
+        # will always send a stop even when a nack is given
         return self._write("writeto", addr, buf)
 
     def writevto(self, addr, bufs):
+        # returns the number of ACKs received, 
+        # will always send a stop even when a nack is given
         return self._write("writevto", addr, bufs)
 
 class I2cCtl():
-    # bus() returns an I2CBus wrapper object (wraps I2C).
+    # Creates object referenced by the application to represent I2C busses
     I2C_ERR_MAX_MS  = 1_000
-    I2C_ERR_MAX_CNT =     3
+    I2C_BUS_ERR_MAX =     3
     # I2C:
     # Idle both SDL and SCL are 1
-    # START | 7 or 10 bits addr | R/W bit | ACK/NACK bit |
+    # START | 7 bit adr | R/W bit | ACK/NACK bit |
     #       | [ 8 bits data | ack/nack ]  | [ 8 - bits data | ack/nack ] ...
     #       | STOP
     # Normal data
@@ -100,7 +137,7 @@ class I2cCtl():
         #   23 (SMPS control), 26 (Pot), 27 (LDR)
         # Available: Pins 2 & 3
         self._i2c = [{"OBJ": None, "SCL": I2C0_SCL_PIN, "SDA": I2C0_SDA_PIN, "FREQ": 400_000},
-                    {"OBJ": None, "SCL": I2C1_SCL_PIN, "SDA": I2C1_SDA_PIN, "FREQ": 100_000}]
+                     {"OBJ": None, "SCL": I2C1_SCL_PIN, "SDA": I2C1_SDA_PIN, "FREQ": 100_000}]
         
         self._i2c[I2C0_ID]["OBJ"] = I2C(I2C0_ID, 
                                         scl  = Pin(self._i2c[I2C0_ID]["SCL"]), 
@@ -125,9 +162,13 @@ class I2cCtl():
         assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
         return I2cBus(self, id)
 
+    def i2c(self, id):
+        assert id == I2C0_ID
+        return self._i2c[id]["OBJ"]
+
     def handle_err(self, id=I2C0_ID):
-        # Called by I2cBus for each failed write. Resets the bus once there
-        # are I2C_ERR_MAX_CNT errors within I2C_ERR_MAX_MS.
+        # Called by I2cBus for each failed write due to a bus error. 
+        # Resets the bus once there are I2C_ERR_MAX_CNT errors within I2C_ERR_MAX_MS.
         # Returns True if the bus was reset, does not raise exceptions.
         t = ticks_ms()
         if ticks_diff(t, self.Errors[id]["last"]) > I2cCtl.I2C_ERR_MAX_MS:
@@ -138,20 +179,18 @@ class I2cCtl():
 
         # increment error count
         self.Errors[id]["count"] += 1
-        if self.Errors[id]["count"] < I2cCtl.I2C_ERR_MAX_CNT:
+        if self.Errors[id]["count"] < I2cCtl.I2C_BUS_ERR_MAX:
             return False
 
         # Over error count, reset bus and init error count
         self.Errors[id]["count"] = 0
         self.Errors[id]["last"]  = 0
         try:
-            self._reset_i2c(id)
+            return self._reset_i2c(id)
         except Exception as e:
             if self.DEBUG:
                 print("I2cCtl handle_err reset failed: ", e)
-            return False
-
-        return True
+        return False
 
     def _reset_i2c(self, id=I2C0_ID):
         # Can handle where the master has stopped issuing clock cycles
@@ -192,7 +231,13 @@ class I2cCtl():
                 scl.value(1)
                 sleep_us(5)
 
-            # Generate stop
+            if not sda.value():
+                if self.DEBUG:
+                    print("\treset_i2c: SDA is still being held low => unable to send stop!")
+                self._i2c[id]["OBJ"] = old_i2c
+                return False
+            
+            # Send stop 
             scl.value(0)
             sleep_us(5)
 
@@ -205,7 +250,8 @@ class I2cCtl():
             sda.value(1)
             sleep_us(5)
         except:
-            pass
+            self._i2c[id]["OBJ"] = old_i2c
+            return False # or raise FIXME: Just let it pass through for now, don't want caller thinking bus is reset
 
         try:
             self._i2c[id]["OBJ"] = I2C(id, 
@@ -216,12 +262,14 @@ class I2cCtl():
             if self.DEBUG:
                 print("** reset_i2c: New bus ", self._i2c[id]["OBJ"])
 
+            return True
+
         except Exception as e:
             if self.DEBUG:
                 print("reset_i2c exception: ", e)
-            # FIXME: Do I need to redefine pins?
-            self._i2c[id]["OBJ"] = old_i2c
-            raise e
+        # FIXME: Do I need to redefine pins?
+        self._i2c[id]["OBJ"] = old_i2c
+        return False
 
 #############################################################################
 # OLED

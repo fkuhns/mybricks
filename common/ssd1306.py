@@ -73,26 +73,26 @@ class SSD1306(framebuf.FrameBuffer):
             0x10 if self.external_vcc else 0x14,
             SET_DISP | 0x01,  # display on
         ):  # on
-            self.write_cmd(cmd)
+            self.write_cmd(cmd) # type: ignore
         self.fill(0)
         self.show()
 
     def poweroff(self):
-        self.write_cmd(SET_DISP)
+        self.write_cmd(SET_DISP) # type: ignore
 
     def poweron(self):
-        self.write_cmd(SET_DISP | 0x01)
+        self.write_cmd(SET_DISP | 0x01) # type: ignore
 
     def contrast(self, contrast):
-        self.write_cmd(SET_CONTRAST)
-        self.write_cmd(contrast)
+        self.write_cmd(SET_CONTRAST) # type: ignore
+        self.write_cmd(contrast) # type: ignore
 
     def invert(self, invert):
-        self.write_cmd(SET_NORM_INV | (invert & 1))
+        self.write_cmd(SET_NORM_INV | (invert & 1)) # type: ignore
 
     def rotate(self, rotate):
-        self.write_cmd(SET_COM_OUT_DIR | ((rotate & 1) << 3))
-        self.write_cmd(SET_SEG_REMAP | (rotate & 1))
+        self.write_cmd(SET_COM_OUT_DIR | ((rotate & 1) << 3)) # type: ignore
+        self.write_cmd(SET_SEG_REMAP | (rotate & 1)) # type: ignore
 
     def show(self):
         x0 = 0
@@ -102,13 +102,13 @@ class SSD1306(framebuf.FrameBuffer):
             col_offset = (128 - self.width) // 2
             x0 += col_offset
             x1 += col_offset
-        self.write_cmd(SET_COL_ADDR)
-        self.write_cmd(x0)
-        self.write_cmd(x1)
-        self.write_cmd(SET_PAGE_ADDR)
-        self.write_cmd(0)
-        self.write_cmd(self.pages - 1)
-        self.write_data(self.buffer)
+        self.write_cmd(SET_COL_ADDR) # type: ignore
+        self.write_cmd(x0) # type: ignore
+        self.write_cmd(x1) # type: ignore
+        self.write_cmd(SET_PAGE_ADDR) # type: ignore
+        self.write_cmd(0) # type: ignore
+        self.write_cmd(self.pages - 1) # type: ignore
+        self.write_data(self.buffer) # type: ignore
 
 
 class SSD1306_I2C(SSD1306):
