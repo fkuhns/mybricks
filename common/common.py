@@ -42,18 +42,17 @@ class Button():
     BUTT_DEBOUNCE_MS = 200  # Milliseconds to ignore subsequent bounces
 
     def __init__(self):
-        self.last    = 0
-        self.count   = 0
+        self.last     = ticks_ms()
+        self.count    = 0
         self._enabled = False
-        self.led     = Pin(LED_PIN, Pin.OUT)
-        self.button  = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
+        self.led      = Pin(LED_PIN, Pin.OUT)
+        self.button   = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
         self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
 
-    def handler(self, pin):
+    def handler(self, _):
         current_time = ticks_ms()
 
-        if ticks_diff(current_time, self.last) < Button.BUTT_DEBOUNCE_MS:
-            # print("\tButton chatter, ignoring!")
+        if 0 <= ticks_diff(current_time, self.last) < Button.BUTT_DEBOUNCE_MS:
             return
 
         self.count  += 1
@@ -68,10 +67,7 @@ class Button():
         finally:
             enable_irq(s)
 
-        if self._enabled:
-            self.led.value(1)
-        else:
-            self.led.value(0)
+        self.led.value(self._enabled)
 
         return self._enabled
 
