@@ -1,40 +1,36 @@
 from machine import Pin, reset, enable_irq, disable_irq
 from ir_sensor import NEC_8, IR_RX
-from utime import sleep_ms, ticks_ms, ticks_diff, ticks_add, sleep
+from utime import sleep_ms, ticks_ms, ticks_us, ticks_diff, sleep
 #from ssd1306 import SSD1306_I2C
 from array import array
-from common import Button, Pot
-from usonic import UltrasonicSensor, UltraSonicTimeout
+from common import Button, Pot, \
+                    DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN, \
+                    IR_PIN, I2C0_ID
 from i2c_dev import I2cCtl, OledI2c, I2cException
-from motor import CarMotors, MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_RIGHT, MOTOR_CMD_STOP, MOTOR_CMD_NOOP, MOTOR_CMD_STOP_FORCE
-
+from distance import CarDist
+from motor import CarMotors, \
+                    MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_RIGHT, \
+                    MOTOR_CMD_STOP, MOTOR_CMD_NOOP, MOTOR_CMD_STOP_FORCE
 
 MODE_DIST = const( 1) # bin 0_0001, 0x01
 MODE_IR   = const( 2) # bin 0_0010, 0x02
 MODE_BUTT = const( 4) # bin 0_0100, 0x04
 MODE_POT  = const( 8) # bin 0_1000, 0x08
 MODE_BUZZ = const(16) # bin 1_0000, 0x10
-MODE_MASK = 0x001F
+MODE_MASK = const(0x001F)
 # MODE_OLED = const(16) # bin 10_0000, 0x20
 MODE_0 = (MODE_DIST | MODE_IR | MODE_BUTT | MODE_POT | MODE_BUZZ) & MODE_MASK
 MODE_1 = (MODE_DIST |           MODE_BUTT | MODE_POT | MODE_BUZZ) & MODE_MASK
 MODE_2 = (            MODE_IR | MODE_BUTT | MODE_POT | MODE_BUZZ) & MODE_MASK
 
-I2C0_ID       = 0
-IR_PIN        = 0
+_DEBUG     = DEBUG_WARN
+_DST_DEBUG = DEBUG_WARN
+_I2C_DEBUG = DEBUG_WARN
+_MTR_DEBUG = DEBUG_WARN
+_OLD_DEBUG = DEBUG_WARN
+_IR_DEBUG  = DEBUG_WARN
 
-DIST_MIN_CHANGE  = 1 # inches
-DIST_INTERVAL_MS = 1000 # FIXME:100 # HC-SR04 needs >= 60ms between pings
-
-TURN_DELAY_MS    = 500 # FIXME: default turn time when the pot is not used
-
-_DEBUG     = const(1)
-_DST_DEBUG = const(1)
-_I2C_DEBUG = const(1)
-_MTR_DEBUG = const(1)
-_OLD_DEBUG = const(0)
-_IR_DEBUG  = const(0)
-
+PERF_ON = const(0)
 
 class AppException(Exception):
     pass
@@ -57,8 +53,10 @@ class MyApp():
             self.init_ir_env()
 
         if self.mode & MODE_DIST:
-            self.init_dist()
-        
+            self.dist = CarDist(self.motors, self.oled, debug=_DST_DEBUG)
+        else:
+            self.dist = None
+
         if self.mode & MODE_BUTT:
             self.butt = Button()
         else:
@@ -81,7 +79,7 @@ class MyApp():
                                 self.mode & MODE_BUZZ, 
                                 debug=_MTR_DEBUG)
 
-        if _I2C_DEBUG:
+        if _I2C_DEBUG >= DEBUG_INFO:
             print("MyApp: I2C environment up")
             print("MyAPP: OLED ",  self.oled._octrl)
             print("MyAPP: Motors ",self.motors.mctrl)
@@ -90,11 +88,13 @@ class MyApp():
     # OLED 
     #############################################################################
     def display(self):
+        if _OLD_DEBUG >= DEBUG_VERB:
+            print("MyApp.display")
         try:
             self.oled.show()
         except I2cException as e:
             # the bus has already retried and reset if needed
-            if _OLD_DEBUG:
+            if _OLD_DEBUG >= DEBUG_WARN:
                 print("\tDisplay: I2C exception, OLED show: ", e)
 
     #############################################################################
@@ -121,7 +121,7 @@ class MyApp():
         else:
             self._ir_ctrl = None
 
-        if _IR_DEBUG:
+        if _IR_DEBUG >= DEBUG_INFO:
             print("MyApp : IR up: ", self._ir_ctrl)
 
     def ir_callback(self, cmd, addr, _):
@@ -129,7 +129,7 @@ class MyApp():
         # FIXME: Add command queue
         self._ir_cmd = cmd
         self._ir_rx  = True
-        if _IR_DEBUG:
+        if _IR_DEBUG >= DEBUG_VERB:
             print('# IR Callback -> Cmd: 0x{:02x} Addr: 0x{:04x}'.format(cmd, addr))
 
     def ir_err(self, code):
@@ -146,7 +146,7 @@ class MyApp():
         # Errors are < -1 (repeat cmd), a 0 means no errors
         if  code < IR_RX.REPEAT:
             try:
-                if _IR_DEBUG:
+                if _IR_DEBUG >= DEBUG_ERROR:
                     print("IR Error: ", MyApp._IR_ERRS[code])
                 self.oled.update_row3(MyApp._IR_ERRS[code])
             except KeyError:
@@ -155,9 +155,9 @@ class MyApp():
     def process_ir(self, cmd):
         motor_cmd = self.ir_cmd_map[cmd]
         if motor_cmd is None:
-            if _IR_DEBUG:
+            if _IR_DEBUG >= DEBUG_ERROR:
                 print("process_ir: Invalid command ", cmd)
-            self.oled.update_row3("IR cmd error")
+            self.oled.update_row3("Unknown IR cmd")
             return
         self.motors.add_cmd(motor_cmd)
 
@@ -181,150 +181,83 @@ class MyApp():
             enable_irq(s)
 
         try:
+            # I2CExceptions & OSError are handled in process_ir
             self.process_ir(code) 
-            # FIXME: self.display()
-        # I2CExceptions & OSError are handled in process_ir and display
         except Exception as e:
-            if _IR_DEBUG:
+            if _IR_DEBUG >= DEBUG_WARN:
                 print("** run_ir: General exception, ignoring: ", e)
-
-    #############################################################################
-    # Distance
-    #############################################################################
-    def init_dist(self):
-        if self.mode & MODE_DIST:
-            self.sonic = UltrasonicSensor()
-        else:
-            self.sonic = None
-
-        self.dist_min_change = DIST_MIN_CHANGE
-        self.dist_last       = -1
-        self.dist_ticks_last =  0
-        self.turn_end        = None # ticks_ms deadline while turning, else None
-
-        if _DST_DEBUG and (self.mode & MODE_DIST):
-            print("MyApp: Distance env up")
-
-    def process_dist(self):
-        try:
-            # throws Ultrasonic exception for timeouts or other errors
-            assert self.sonic is not None
-            dist = self.sonic.get_distance() # distance in inches
-        except UltraSonicTimeout:
-            if _DST_DEBUG:
-                print("process_dist: echo not received in timeout")
-            # only redraw on the first timeout in a row
-            if self.dist_last != -1:
-                self.dist_last = -1
-                self.oled.update_row2("Dist: --")
-                # FIXME: self.display()
-            return -1.0
-
-        if abs(dist - self.dist_last) < self.dist_min_change:
-            return dist
-
-        # if _DST_DEBUG:
-        #     print("process_dist dist = %.2f ... %.2f\' %.2f\"" % (dist, dist // 12, dist % 12))
-
-        self.dist_last = dist
-        
-        self.oled.update_row2("%d\' %.2f\"" % (dist // 12, dist % 12))
-        # FIXME: self.display()
-
-        return dist
-
-    def run_dist(self): 
-        # Only runs if MODE_DIST is set
-        t = ticks_ms()
-
-        # # Non-blocking turn: keep turning until the deadline, then stop
-        # # and take a fresh reading right away.
-        # if self.turn_end is not None:
-        #     if ticks_diff(t, self.turn_end) < 0:
-        #         return
-        #     self.turn_end = None
-        #     self._motor(self.motors.stop_motors)
-        #     self.dist_ticks_last = t # FIXME: ticks_add(t, -DIST_INTERVAL_MS)
-
-        # Get distance
-        if ticks_diff(t, self.dist_ticks_last) < DIST_INTERVAL_MS:
-            return
-        
-        self.dist_ticks_last = t
-        dist = self.process_dist()
-        if dist < 0:
-            if _DST_DEBUG:
-                print("\trun_dist: unknown distance, timeout: ", dist)
-            # FIXME: better would be checking previous distance to determine likelihood
-            # that the timeout means "infinite"
-            #self._motor(self.motors.stop_motors)
-            self.motors.add_cmd(MOTOR_CMD_STOP)
-
-        elif dist > 24.0:
-            #self._motor(self.motors.forward)
-            self.motors.add_cmd(MOTOR_CMD_FORWARD)
-
-        elif dist < 12.0:
-            #self._motor(self.motors.backward)
-            self.motors.add_cmd(MOTOR_CMD_REVERSE)
-
-        else:
-            # self._motor(self.motors.turn_left)
-            # self.turn_end = ticks_add(t, self.turn_delay)
-            self.motors.add_cmd(MOTOR_CMD_LEFT)
-
 
     #############################################################################
     # App
     #############################################################################
     def run(self):
-        running = 0
+        running  = 0
+        diff_ms  = 0
+        start_ms = 0
+
         while True:
+            if PERF_ON: start_ms = ticks_ms()
             try:
+                # ----------------------------------------------------------
                 if self.mode & MODE_BUTT:
                     assert self.butt is not None
                     while not self.butt.enabled():
                         if running:
                             self.shutdown()
                             running = 0
-                        # recheck every half second
-                        sleep_ms(500)
+                        sleep(0.5)
 
                 running = 1
 
+                # ----------------------------------------------------------
                 if self.mode & MODE_POT:
                     assert self.pot is not None
                     self.motors.set_turn_ms(self.pot.get_value())
 
+                # ----------------------------------------------------------
                 if self.mode & MODE_DIST:
-                    self.run_dist()
+                    assert self.dist is not None
+                    if PERF_ON: s = ticks_us()
+                    self.dist.run()
+                    if PERF_ON: d = ticks_diff(ticks_us(), s); print("\tRun dist time %dus" % d)
 
+                # ----------------------------------------------------------
                 if self.mode & MODE_IR:
                     self.run_ir()
 
+                # ----------------------------------------------------------
                 # Assume there are motor commands to process
                 # either from IR, Dist or both
+                if PERF_ON: s = ticks_us()
                 self.motors.run_cmds()
-                # FIXME: self.display()
-                sleep(1)
-
+                if PERF_ON: d = ticks_diff(ticks_us(), s); print("\tRun commands time %dus" % d)
+                # ----------------------------------------------------------
+                # Likewise assume there has been an update to the o
+                # 
+                # led buffer
+                if PERF_ON: s = ticks_ms()
+                self.display()
+                if PERF_ON: d = ticks_diff(ticks_ms(), s); print("\tDisplay time %dms" % d)
             except KeyboardInterrupt:
-                if _DEBUG:
+                if _DEBUG >= DEBUG_INFO:
                     print("Keyboard interrupt ... exiting")
                 raise
             except AppException:
-                if _DEBUG:
+                if _DEBUG >= DEBUG_ERROR:
                     print("run caught AppException - let it bubble up")
                 raise
             except Exception as e:
-                if _DEBUG:
+                if _DEBUG >= DEBUG_WARN:
                     print("run caught exception, ignoring: ", e)
+
+            if PERF_ON: diff_ms = ticks_diff(ticks_ms(), start_ms); print("--- Run loop time %dms\n" % diff_ms)
+            if PERF_ON: sleep(0.5)
 
     def shutdown(self):
         self.motors.reset()
         if self.mode & MODE_DIST:
-            self.dist_last = -1
-            self.turn_end  = None
+            assert self.dist is not None
+            self.dist.reset()
         sleep_ms(1)
         self.oled.init_buf()
         # FIXME: self.display()

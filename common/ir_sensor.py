@@ -25,6 +25,7 @@ from machine import Timer, Pin
 from array import array
 from utime import ticks_us
 from utime import ticks_us, ticks_diff
+from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 # from micropython import alloc_emergency_exception_buf
 # alloc_emergency_exception_buf(100)

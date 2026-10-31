@@ -1,12 +1,14 @@
 from machine import Pin, PWM, Timer
-from utime import sleep # sleep
+from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
+# FIXME: from utime import sleep
 
 # Buzzer GPIO Pin number
 BUZZ_PIN = 20
 BUZZ_DUTY_CYCLE = 5000
 
-BUZZ_ON_TIME_MS = 500
+BUZZ_ON_TIME_MS  = 500
 BUZZ_OFF_TIME_MS = 500
+BUZZ_FREQ        = 500
 
 BUZZ_STATE_OFF     = 0x00
 BUZZ_STATE_ENABLED = 0x01
@@ -19,7 +21,7 @@ class Buzzer():
     def __init__(self, debug):
         self.state   = BUZZ_STATE_OFF
         self.buzzer  = PWM(Pin(BUZZ_PIN, Pin.OUT))
-        self.buzzer.freq(500)
+        self.buzzer.freq(BUZZ_FREQ)
         self.timer   = Timer(-1)
         self.DEBUG   = debug
 

@@ -1,5 +1,6 @@
 from machine import Pin, time_pulse_us
 import time
+from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 
 ## Ultrasonic distance sensor library for Raspberry Pi
@@ -21,7 +22,7 @@ US_ECHO_PIN    =   14  # GPIO pin for echo
 US_SPEED_IPUS  = 0.01359876  # Inches per microsecond
 US_DIST_MAX    = 288.00  # 144 inches = 12 feet
 
-_DEBUG = const(0)
+_DEBUG = DEBUG_NONE
 
 class UltraSonicTimeout(Exception):
     pass

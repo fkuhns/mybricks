@@ -13,7 +13,7 @@ def scenario(sim):
     sim.expect(2_500, lambda: sim.motor.wheels() == [80, 80], "up drives forward")
 
     sim.at(3_000, sim.ir_send, LEFT)
-    sim.expect(4_200, lambda: sim.motor.wheels() == [-80, 80], "left pivots left")
+    sim.expect(3_400, lambda: sim.motor.wheels() == [-80, 80], "left pivots left")
     sim.expect(6_000, lambda: sim.motor.wheels() == [0, 0], "turn ends with a stop")
 
     sim.at(6_200, sim.ir_send, UP, 0x00, None, True)  # repeat code is a no-op

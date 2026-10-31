@@ -1,8 +1,8 @@
 from machine import I2C
 from buzzer import Buzzer
-from time import sleep_ms, ticks_ms, ticks_diff, ticks_add
+from time import ticks_ms, ticks_diff
 from i2c_dev import I2cException #, I2cBusException, I2cNackException
-from common import RingBuffer
+from common import RingBuffer, DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 MOTOR_DEF_SPEED  = 80
 
@@ -29,14 +29,17 @@ MOTOR_INDX_DELAY  = 2
 MOTOR_INDX_COUNT  = 3
 
 MOTOR_TURN_DELAY_MS = 500 # default turn time, see set_turn_ms()
-MOTOR_INTER_CMD_MS  =   0
-MOTOR_RETRY_MS      =  10 # wait before retrying a failed command
+MOTOR_INTER_CMD_MS  =   0 # FIXME: Good value?
+MOTOR_RETRY_MS      =   1 # wait before retrying a failed command
 MOTOR_CMD_MAX_TRIES =   3 # each try is I2C_MAX_TRIES I2C writes
 
 # Turn calibration: ms = MOTOR_TURN_T0_MS + degrees / MOTOR_TURN_DEG_PER_MS
 # FIXME: placeholders, measure at MOTOR_DEF_SPEED
 MOTOR_TURN_T0_MS      = 0   # motor spin up lag
 MOTOR_TURN_DEG_PER_MS = 0.18 # 90 deg in 500 ms
+
+class MotorException(Exception):
+    pass
 
 class MotorDriver:
     def __init__(self, i2c, addr=0x22):
@@ -214,46 +217,72 @@ class CarMotors():
 
     def add_cmd(self, cmd, arg=0):
         # Returns False if the command did not fit in the buffer
+        if self.DEBUG >= DEBUG_VERB:
+            print("CarMotors.add_cmd: START cmd %d, len(q) = %d" % (cmd, len(self.rbuf)))
+
         if cmd == MOTOR_CMD_NOOP:
             return True
 
         if cmd > MOTOR_CMD_MAX or cmd < MOTOR_CMD_NOOP:
-            raise RuntimeError("Invalid motor command ", cmd)
+            # should not happen
+            raise MotorException("CarMotors.add_cmd: Invalid motor command ", cmd)
 
+        if self.rbuf.is_full():
+            return False # can certainly happen
+        
+        # Command entry: (cmd, arg, delay, count)
         if cmd == MOTOR_CMD_LEFT or cmd == MOTOR_CMD_RIGHT:
             # a turn is only queued with its stop, never without it
             if self.rbuf.free() < 2:
-                return False
+                return False # can certainly happen
+            
             ms = self.ms_for_angle(arg) if arg else self.turn_ms
-            self.rbuf.put((cmd, arg, MOTOR_INTER_CMD_MS, 0))
-            self.rbuf.put((MOTOR_CMD_STOP, 0, ms, 0))
-            return True
 
-        return self.rbuf.put((cmd, arg, MOTOR_INTER_CMD_MS, 0))
+            # Push turn cmd and it's STOP command onto fifo queue
+            if not self.rbuf.put((cmd, arg, MOTOR_INTER_CMD_MS, 0)):
+                # should not happen
+                raise MotorException("add_cmd: Error adding turn to buffer: ", cmd)
+            
+            if not self.rbuf.put((MOTOR_CMD_STOP, 0, ms, 0)):
+                # should not happen
+                self.rbuf.unput()
+                raise MotorException("add_cmd: Error adding the turns stop: ", cmd)
+        else:
+            if not self.rbuf.put((cmd, arg, MOTOR_INTER_CMD_MS, 0)):
+                # should not happen
+                raise MotorException("add_cmd: Error adding cmd to buffer: ", cmd)
+
+        if self.DEBUG >= DEBUG_INFO:
+            print("CarMotors.add_cmd: added cmd %d, len(q) = %d" % (cmd, len(self.rbuf)))
+
+        return True
+
+    def clear_cmds(self):
+        if self.DEBUG >= DEBUG_VERB:
+            print("CarMotors.clear_cmds: Clear command buf")
+        self.rbuf.clear()
 
     def run_cmds(self):
+        # if self.DEBUG >= DEBUG_VERB:
+        #     print("CarMotors.run_cmds: Entry len(q) = %d" % len(self.rbuf))
         while not self.rbuf.is_empty():
+            
             item = self.rbuf.peek()
             
             if ticks_diff(ticks_ms(), self._last_run) < item[MOTOR_INDX_DELAY]: # type: ignore
                 break
 
             cmd = item[MOTOR_INDX_CMD] # type: ignore
-            if self.DEBUG>1:
+            if self.DEBUG >= DEBUG_VERB:
                 print("CarMotor.run_cmds: cmd ", cmd)
 
             try:
                 self.actions[cmd]() # type: ignore
-                self._last_run = ticks_ms()
-                self.rbuf.advance_tail()
-                if self.DEBUG:
-                    print("CarMotor.run_cmds State %s (%s/%s)" % (self.state[0], self.state[1], self.state[2]))
-
             except I2cException as e:
                 self._last_run = ticks_ms()
                 count = item[MOTOR_INDX_COUNT] + 1 # type: ignore
 
-                if self.DEBUG:
+                if self.DEBUG >= DEBUG_WARN:
                     print("CarMotor.run_cmds I2CException, try ", count, ": ", e) # type: ignore
                     print("\tState %s (%s/%s)" % (self.state[0], self.state[1], self.state[2]))
 
@@ -268,6 +297,13 @@ class CarMotors():
                 break
 
             except Exception as e:
-                print("CarMotor.run_cmds: Unexpected exception ", e)
+                if self.DEBUG >= DEBUG_ERROR:
+                    print("CarMotor.run_cmds: Unexpected exception ", e)
                 self.rbuf.advance_tail() # do not retry it forever
                 raise
+
+            self._last_run = ticks_ms()
+            self.rbuf.advance_tail()
+            if self.DEBUG >= DEBUG_INFO:
+                print("\tCarMotor.run_cmds Cmd %d State %s (%s/%s)" 
+                        % (cmd, self.state[0], self.state[1], self.state[2]))

@@ -1,6 +1,15 @@
-from machine import Pin, enable_irq, disable_irq, ADC
-from utime import sleep, ticks_ms, ticks_diff
+from machine import Pin, enable_irq, disable_irq, Timer, ADC
+from utime import ticks_ms, ticks_diff
 from array import array
+
+#############################################################################
+# DEBUG
+#############################################################################
+DEBUG_NONE  = const(0)
+DEBUG_ERROR = const(1)
+DEBUG_WARN  = const(2)
+DEBUG_INFO  = const(3)
+DEBUG_VERB  = const(4)
 
 #############################################################################
 # GPIO Default pin assignments
@@ -39,36 +48,35 @@ LDR_PIN        = 27 # ADC1
 # Button
 #############################################################################
 class Button():
-    BUTT_DEBOUNCE_MS = 200  # Milliseconds to ignore subsequent bounces
+    BUTT_DEBOUNCE_MS = 50  # Milliseconds to ignore subsequent bounces
 
     def __init__(self):
-        self.last     = ticks_ms()
-        self.count    = 0
         self._enabled = False
+        self.pressed  = False
         self.led      = Pin(LED_PIN, Pin.OUT)
         self.button   = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
+        self.timer    = Timer(-1)
         self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
 
     def handler(self, _):
-        current_time = ticks_ms()
+        self.button.irq(handler=None)
+        self.timer.init(period=Button.BUTT_DEBOUNCE_MS, mode=Timer.ONE_SHOT, callback=self.debounce_callback)
 
-        if 0 <= ticks_diff(current_time, self.last) < Button.BUTT_DEBOUNCE_MS:
-            return
-
-        self.count  += 1
-        self.last    = current_time
+    def debounce_callback(self, _):
+        if self.button.value() == 1:
+            self.pressed = True
+        self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
 
     def enabled(self):
         s = disable_irq()
         try:
-            if self.count % 2: # odd count (1, 3, 5, ....)
+            if self.pressed:
                 self._enabled = not self._enabled
-            self.count = 0 # all caught up
+                self.pressed = False
         finally:
             enable_irq(s)
 
         self.led.value(self._enabled)
-
         return self._enabled
 
 #############################################################################
@@ -270,6 +278,15 @@ class RingBuffer():
         nxt = self.tail + 1
         self.tail = 0 if nxt == self.slots else nxt
         return item
+
+    def unput(self):
+        if self.tail == self.head:
+            return False
+
+        self.head = (self.slots - 1) if (self.head == 0) else (self.head - 1)
+
+        return True
+
 
     def put(self, item):
         nxt = self.head + 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Run smartCar/main.py on the laptop against simulated hardware.
+# Run smartCar/smart_car.py on the laptop against simulated hardware.
 #
 #   python3 sim/run.py sim/scenarios/i2c_faults.py
 #   python3 sim/run.py sim/scenarios/dist_room.py -q       # hide app prints
@@ -7,7 +7,7 @@
 #   python3 sim/run.py --all                               # every scenario, pass/fail
 #
 # A scenario is a python file with:
-#   MODE        = "MODE_1"    # name of a MODE_* constant in main.py, or an int
+#   MODE        = "MODE_1"    # name of a MODE_* constant in smart_car.py, or an int
 #   DURATION_MS = 20_000
 #   def scenario(sim): ...    # schedule inputs, faults and checks (see README)
 import argparse
@@ -53,9 +53,9 @@ def run_one(path, args):
 
     try:
         scen = load_scenario(path)
-        import main
+        import smart_car
 
-        mode = scen.MODE if isinstance(scen.MODE, int) else getattr(main, scen.MODE)
+        mode = scen.MODE if isinstance(scen.MODE, int) else getattr(smart_car, scen.MODE)
         sim.end(args.until or getattr(scen, "DURATION_MS", 20_000))
         scen.scenario(sim)
     except BaseException:
@@ -64,7 +64,7 @@ def run_one(path, args):
     sim.log("START", "%s  mode 0x%02x" % (os.path.basename(path), mode))
 
     try:
-        sim.app = main.MyApp(mode)
+        sim.app = smart_car.MyApp(mode)
         sim.app.run()
     except simcore.SimStop:
         sim.log("END", "time limit reached")

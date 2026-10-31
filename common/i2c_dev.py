@@ -3,6 +3,7 @@ from machine import Pin, I2C
 from utime import sleep_ms, sleep_us, ticks_diff, ticks_ms
 from ssd1306 import SSD1306_I2C
 from buzzer import Buzzer
+from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 I2C0_ID       = 0
 I2C0_SDA_PIN  = 4
@@ -70,19 +71,19 @@ class I2cBus():
             try:
                 acks = getattr(self._ctl.i2c(self._id), fname)(addr, buf)
                 if acks == exp_ack:
-                    if self._ctl.DEBUG > 1:
+                    if self._ctl.DEBUG >= DEBUG_VERB:
                         print("I2cBus.%s ack %d == expected %d - success"% (fname, acks, exp_ack))
                     return True
 
-                if self._ctl.DEBUG:
+                # acks != exp_ack
+                if self._ctl.DEBUG >= DEBUG_INFO:
                     print("I2cBus.%s try %d NACK: ack %d != expected %d" % (fname, i, acks, exp_ack))
-                    if exp_ack < 9: # max 8 bytes
-                        print("\tBuf = ", buf)
-                sleep_us(1_000) # FIXME: prefer to not have any sleep/delay here
+
+                sleep_us(500) # FIXME: prefer to not have any sleep/delay here
 
             except OSError as e:
                 last_error = e
-                if self._ctl.DEBUG:
+                if self._ctl.DEBUG >= DEBUG_INFO:
                     print("I2cBus.{} 0x{:02x} try {} OSError: {}".format(fname, addr, i, e))
                 self._ctl.handle_err(self._id)
         # end of for loop
@@ -106,24 +107,50 @@ class I2cBus():
 
 class I2cCtl():
     # Creates object referenced by the application to represent I2C busses
+    # I2C:
+    #   - Idle both SDL and SCL are 1
+    #   - Repeated START instead of a STOP to retain bus
+    #   - Data bits: SDA can only change while scl is low
+    #        * SDA 0 or 1, SCL transitions 0-1-0 (SCL pulsed)
+    #        * SDA only changes when SCL is 0
+    #   - Changing SDA while SCL is high is reserved for control commands
+    #        * START: SDA 1 to 0 then SCL 1 to 0
+    #        * STOP:  SCL 0 to 1 then SDA 0 to 1
+    #        * ACK:   SDA 1 to 0
+    #   - No limit to message size in spec, though buffer sz may limit
+    #   - Slave holding SDA low: Error. 1) state machine is waiting 
+    #     for a clock that never comes or 2) a bus fault.
+    #   - Slave holding SCL low: Clock Stretching. slave can hold SCL 
+    #     low to indicate it is not ready for the next frame. The controller
+    #     will refrain from sending/reading more data until the clock is released.
+    #  
+    # Message format:
+    # -----------------------------------------------------
+    #    START => SDA 1 to 0 then SCL 1 to 0
+    #       | 7 bit addr  | R/W | ACK/NACK |  <= 9 bits
+    #       | 8 bits data | ack/nack |        <= 9 bits
+    #       | 8 bits data | ack/nack |        <= 9 bits
+    #              ...                        ...        
+    #    STOP  => SCL 0 to 1 then SDA 0 to 1
+    # -----------------------------------------------------
+    # For Standard Mode (up to 100 kHz) and Fast Mode (up to 400 kHz), the minimum
+    # low and high pulse widths of the SCL clock are specified as follows:
+    #   - Standard Mode (100 kHz, period = 10us):
+    #       * SCL Low   Pulse Width t_low:  ≥ 4.7 us
+    #       * SCL High  Pulse Width t_high: ≥ 4.0 us
+    #
+    #   - Fast Mode (400 kHz, period = 2.5us):
+    #       * SCL Low  Pulse Width t_low:  ≥ 1.3 us
+    #       * SCL High Pulse Width t_high: ≥ 0.6 us
+    #
+    #   - Fast Mode Plus (1 MHz, period = 1us):
+    #       * SCL Low  Pulse Width t_low:  ≥ 0.5 us
+    #       * SCL High Pulse Width t_high: ≥ 0.26 us
+    #  RC time controls rise and fall times which impact the actual low/hi times.
     I2C_ERR_MAX_MS  = 1_000
     I2C_BUS_ERR_MAX =     3
-    # I2C:
-    # Idle both SDL and SCL are 1
-    # START | 7 bit adr | R/W bit | ACK/NACK bit |
-    #       | [ 8 bits data | ack/nack ]  | [ 8 - bits data | ack/nack ] ...
-    #       | STOP
-    # Normal data
-    # SDA can only change while scl is low
-    # Bits: SDA 0 or 1 holds while SCL 0 to 1 back to 0 (SCL pulsed)
-    # Changing SDA while SCL is high is reserved for control commands
-    #      START: SDA 1 to 0 then SCL 1 to 0
-    #      STOP:  SCL 0 to 1 then SDA 0 to 1
-    #      ACK:   SDA 1 to 0
-    # Repeated START instead of a STOP to retain bus
-    # Clock Stretching: device may hold SCL low to indicate it is not ready
-    # for the next frame. The controller will refrain from sending/reading
-    # more data until the clock is released.
+
+
     def __init__(self, debug=0):
         self.DEBUG = debug
 
@@ -147,11 +174,9 @@ class I2cCtl():
         # FIXME: fix assumption that only one bus is used!
         # self.i2c[I2C1_ID]["OBJ"] = I2C(I2C1_ID, 
         #                                scl  = Pin(self.i2c[I2C1_ID]["SCL"]), 
-        #                                sda  = Pin(self.i2c[I2C1_ID]["SDA"]), 
-        #   
-        # FIXME: Do I need this -> sleep_ms(1)        
+        #                                sda  = Pin(self.i2c[I2C1_ID]["SDA"]),     
 
-        if self.DEBUG:
+        if self.DEBUG >= DEBUG_INFO:
             print("I2cCtl: I2C 0 ", self._i2c[I2C0_ID]["OBJ"])
             print("I2cCtl: I2C 1 ", self._i2c[I2C1_ID]["OBJ"])
 
@@ -188,24 +213,23 @@ class I2cCtl():
         try:
             return self._reset_i2c(id)
         except Exception as e:
-            if self.DEBUG:
+            if self.DEBUG >= DEBUG_WARN:
                 print("I2cCtl handle_err reset failed: ", e)
         return False
 
     def _reset_i2c(self, id=I2C0_ID):
         # Can handle where the master has stopped issuing clock cycles
-        # slave is holding sda low waiting.
+        # because the slave is holding sda low.
         # This does not address clock stretching, for that need to give
         # peripheral time 
         # No exception (except for assertions)
         assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
         old_i2c = self._i2c[id]["OBJ"]
-        if (not old_i2c) and self.DEBUG:
+        if (not old_i2c) and self.DEBUG >= DEBUG_WARN:
             # Should never happen, but not a problem since we are creating a new one
-            if self.DEBUG:
-                print("reset_i2c: i2c ID 2 not defined")
+            print("reset_i2c: i2c ID 2 not defined")
 
-        if self.DEBUG:
+        if self.DEBUG >= DEBUG_VERB:
             print("I2cCtl.reset_i2c: Resetting I2C bus ", id)
 
         self._i2c[id]["OBJ"] = None
@@ -217,7 +241,7 @@ class I2cCtl():
             # FIXME: is a sleep needed here?? sleep_us(10)
             sleep_us(10)
 
-            if self.DEBUG and (sda.value() == 0):
+            if (self.DEBUG >= DEBUG_INFO) and (sda.value() == 0):
                 print("reset_i2c: sda is being held low", sda.value())
 
             # if SDA is being held low by the peripheral, we wont be able 
@@ -227,29 +251,32 @@ class I2cCtl():
                 if sda.value():
                     break
                 scl.value(0)
-                sleep_us(5)
+                sleep_us(5)  # sleep is part of the protocol so is needed
                 scl.value(1)
-                sleep_us(5)
+                sleep_us(5)  # sleep is part of the protocol so is needed
 
             if not sda.value():
-                if self.DEBUG:
+                if self.DEBUG >= DEBUG_WARN:
                     print("\treset_i2c: SDA is still being held low => unable to send stop!")
                 self._i2c[id]["OBJ"] = old_i2c
                 return False
             
-            # Send stop 
+            # Send stop, start with SCL LOW
             scl.value(0)
-            sleep_us(5)
-
+            sleep_us(5) # sleep is part of the protocol so is needed
+            # SCL LOW, Transition SDA HIGH to LOW. 
+            # Normally SDA would not transition while SCL is LOW
             sda.value(0)
-            sleep_us(5)
-
+            sleep_us(5) # sleep is part of the protocol so is needed
+            # SCL transition LOW to HIGH
             scl.value(1)
-            sleep_us(5)
+            sleep_us(5) # sleep is part of the protocol so is needed
 
             sda.value(1)
-            sleep_us(5)
+            sleep_us(5) # sleep is part of the protocol so is needed
         except:
+            if self.DEBUG >= DEBUG_WARN:
+                print("reset_i2c: Unable to gety the I2C buss going again")
             self._i2c[id]["OBJ"] = old_i2c
             return False # or raise FIXME: Just let it pass through for now, don't want caller thinking bus is reset
 
@@ -259,17 +286,18 @@ class I2cCtl():
                                     sda =Pin(self._i2c[id]["SDA"]), 
                                     freq=self._i2c[id]["FREQ"],
                                     timeout=I2C_TOUT)
-            if self.DEBUG:
+            
+            if self.DEBUG >= DEBUG_VERB:
                 print("** reset_i2c: New bus ", self._i2c[id]["OBJ"])
 
-            return True
-
         except Exception as e:
-            if self.DEBUG:
+            if self.DEBUG >= DEBUG_WARN:
                 print("reset_i2c exception: ", e)
-        # FIXME: Do I need to redefine pins?
-        self._i2c[id]["OBJ"] = old_i2c
-        return False
+            # FIXME: Do I need to redefine pins?
+            self._i2c[id]["OBJ"] = old_i2c
+            return False
+        
+        return True
 
 #############################################################################
 # OLED
@@ -292,6 +320,7 @@ class OledI2c():
         self.DEBUG = debug
         self._hdr = hdr
         self._obuf = [["row 1", 0, 0], ["row 2", 0, OLED_ROW_HEIGHT], ["row 3", 0, 2 * OLED_ROW_HEIGHT]]
+        self.updated = True
         self._octrl = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, bus, OLED_I2C_ADDR)
         self.init_buf()
         sleep_ms(5)
@@ -305,6 +334,8 @@ class OledI2c():
         return "Oled\n\t1) {}\n\t2) {}\n\t 3) {}".format(self._obuf[0][0], self._obuf[1][0], self._obuf[2][0])
 
     def _update_row(self, row, txt):
+        if self.DEBUG >= DEBUG_VERB:
+            print("Update row %d with %s" % (row, txt))
         tlen    = len(txt)
         xstart  = 0
         yoffset = (row - 1) * OLED_ROW_HEIGHT
@@ -318,6 +349,7 @@ class OledI2c():
         self._obuf[row-1][0] = txt
         self._obuf[row-1][1] = xstart
         self._obuf[row-1][2] = yoffset
+        self.updated = True
 
         #oled.fill_rect(xstart, yoffset, 128, 8, 0)
         #oled.text(txt, xstart, yoffset)
@@ -337,10 +369,16 @@ class OledI2c():
     #     self._octrl.show()
 
     def show(self):
-        # throws I2CException, the bus has already retried and reset
+        if not self.updated:
+            if self.DEBUG >= DEBUG_VERB:
+                print("OledI2c.show: no changes to buf, so skip writing to oled")
+            return
+
         self._octrl.fill(0)
 
         for row in self._obuf:
             self._octrl.text(row[0], row[1], row[2])
 
         self._octrl.show()
+        self.updated = False
+

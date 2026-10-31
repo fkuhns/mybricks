@@ -1,0 +1,50 @@
+    0.000 SIM INPUT  pot -> 500 ms
+    0.000 SIM START  ir_drive.py  mode 0x1e
+    0.500 SIM INPUT  button press
+    1.000 SIM INPUT  IR cmd 0x18
+    1.031 SIM LED    on
+    1.054 SIM OLED   FK Car | Dist: -- | Status: --
+    1.081 app    CarMotors.add_cmd: added cmd 1, len(q) = 1
+    1.081 SIM MOTOR  L  +80  R   +0   @ (60.0, 20.0)  90 deg
+    1.081 SIM MOTOR  L  +80  R  +80   @ (60.0, 20.0)  90 deg
+    1.081 app    	CarMotor.run_cmds Cmd 1 State Forward (Forward/Forward)
+    2.500 SIM CHECK  PASS  up drives forward
+    3.000 SIM INPUT  IR cmd 0x08
+    3.081 app    CarMotors.add_cmd: added cmd 3, len(q) = 2
+    3.081 SIM MOTOR  L  -80  R  +80   @ (60.0, 44.0)  90 deg
+    3.081 app    	CarMotor.run_cmds Cmd 3 State Left (Backward/Forward)
+    3.581 SIM MOTOR  L   +0  R  +80   @ (60.0, 44.0) 180 deg
+    3.581 SIM MOTOR  L   +0  R   +0   @ (60.0, 44.0) 180 deg
+    3.581 app    	CarMotor.run_cmds Cmd 5 State Stopped (Stopped/Stopped)
+    4.200 SIM CHECK  FAIL  left pivots left
+    6.000 SIM CHECK  PASS  turn ends with a stop
+    6.200 SIM INPUT  IR repeat 0x18
+    7.500 SIM CHECK  PASS  repeat code does nothing
+    7.600 SIM INPUT  IR cmd 0x18, fault data
+    7.705 SIM OLED   FK Car | Dist: -- | BADDATA
+    8.800 SIM CHECK  PASS  bad frame reported
+    8.800 SIM CHECK  PASS  bad frame ignored
+    9.000 SIM INPUT  IR cmd 0x52
+    9.081 app    CarMotors.add_cmd: added cmd 2, len(q) = 1
+    9.081 SIM MOTOR  L  -80  R   +0   @ (60.0, 44.0) 180 deg
+    9.081 SIM MOTOR  L  -80  R  -80   @ (60.0, 44.0) 180 deg
+    9.081 SIM BUZZ   beeping
+    9.081 app    	CarMotor.run_cmds Cmd 2 State Backward (Backward/Backward)
+   10.500 SIM CHECK  PASS  down reverses
+   11.000 SIM INPUT  IR cmd 0x1c
+   11.081 app    CarMotors.add_cmd: added cmd 5, len(q) = 1
+   11.081 SIM MOTOR  L   +0  R  -80   @ (84.0, 44.0) 180 deg
+   11.081 SIM MOTOR  L   +0  R   +0   @ (84.0, 44.0) 180 deg
+   11.081 app    	CarMotor.run_cmds Cmd 5 State Stopped (Stopped/Stopped)
+   12.500 SIM CHECK  PASS  ok stops
+   14.000 SIM END    time limit reached
+
+======================================================================
+t = 14.000 s   car @ (84.0, 44.0) 180 deg   odometer 48.0 in   bumps 0
+motors L +0 R +0   bad packets 0
+I2C0 writes 58  errors 0  bus objects created 1 (resets 0)
+OLED FK Car | Dist: -- | BADDATA
+app motor state ['Stopped', 'Stopped', 'Stopped']
+checks: 7 passed, 1 failed
+   FAIL @ 4200 ms: left pivots left
+======================================================================
