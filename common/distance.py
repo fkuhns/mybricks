@@ -1,5 +1,5 @@
 from utime import ticks_ms, ticks_diff
-from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
+from common import Device, DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 from usonic import UltrasonicSensor, UltraSonicTimeout
 from motor import MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE, MOTOR_CMD_STOP
 
@@ -49,7 +49,7 @@ DIST_ZONES = (
 class DistException(Exception):
     pass
 
-class CarDist():
+class CarDist(Device):
     def __init__(self, 
                  motors, oled, 
                  sonic=None, # FIXME: Should this be an arg now?
@@ -62,13 +62,20 @@ class CarDist():
         self.sonic    = sonic if sonic is not None else UltrasonicSensor()
         self.zones    = zones
         self.pend_cnt = pend_cnt
-        self.reset()
+        self.init()
 
         if self.DEBUG >= DEBUG_INFO:
             print("CarDist: Distance env up")
 
     def __str__(self):
         return "CarDist: zone %d pending %d (%d)" % (self.zid, self.zone_pending, self.pending_cnt)
+
+    # Device hooks, starting forgets the zone so its command is sent again
+    def _init(self):
+        self.reset()
+
+    def _start(self):
+        self.reset()
 
     def reset(self):
         # forget the current zone, the next reading sends its command

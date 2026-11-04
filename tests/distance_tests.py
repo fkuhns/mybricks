@@ -23,7 +23,8 @@ from distance import (CarDist, DistException, DIST_ZONES,
                       DIST_ZONE_INVALID, DIST_ZONE_0, DIST_ZONE_1,
                       DIST_ZONE_2, DIST_ZONE_3, DIST_ZONE_PEND_CNT,
                       DIST_TIMEOUT, DIST_MIN_INCHES, DIST_INTERVAL_MS,
-                      DIST_MAX_IN, ZONE_REFRESH_INDX)
+                      DIST_MAX_IN, ZONE_REFRESH_INDX, ZONE_START_INDX,
+                      ZONE_STOP_INDX)
 from usonic import UltraSonicTimeout
 from motor import (MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE,
                    MOTOR_CMD_STOP)
@@ -31,8 +32,17 @@ from motor import (MOTOR_CMD_FORWARD, MOTOR_CMD_LEFT, MOTOR_CMD_REVERSE,
 TIMEOUT = None # FakeSonic reading that raises UltraSonicTimeout
 REFRESH_MS = DIST_ZONES[DIST_ZONE_2][ZONE_REFRESH_INDX]
 
+# zone edges in inches: EDGE_12 is between zones 1 and 2, EDGE_23 between 2 and 3
+EDGE_12 = DIST_ZONES[DIST_ZONE_1][ZONE_STOP_INDX]
+EDGE_23 = DIST_ZONES[DIST_ZONE_2][ZONE_STOP_INDX]
+
+def mid(zid):
+    z = DIST_ZONES[zid]
+    return (z[ZONE_START_INDX] + z[ZONE_STOP_INDX]) / 2
+
 # a distance in the middle of each zone
-IN_ZONE = {DIST_ZONE_0: TIMEOUT, DIST_ZONE_1: 6.0, DIST_ZONE_2: 20.0, DIST_ZONE_3: 60.0}
+IN_ZONE = {DIST_ZONE_0: TIMEOUT, DIST_ZONE_1: mid(DIST_ZONE_1),
+           DIST_ZONE_2: mid(DIST_ZONE_2), DIST_ZONE_3: mid(DIST_ZONE_3)}
 ZONE_CMD = {DIST_ZONE_0: MOTOR_CMD_STOP, DIST_ZONE_1: MOTOR_CMD_REVERSE,
             DIST_ZONE_2: MOTOR_CMD_LEFT, DIST_ZONE_3: MOTOR_CMD_FORWARD}
 
@@ -137,11 +147,11 @@ class TestFindZone(DistTestBase):
         self.assertEqual(self.zid(DIST_TIMEOUT), DIST_ZONE_0)
 
     def test_boundaries(self):
-        self.assertEqual(self.zid(0), DIST_ZONE_1)
-        self.assertEqual(self.zid(11.99), DIST_ZONE_1)
-        self.assertEqual(self.zid(12), DIST_ZONE_2)
-        self.assertEqual(self.zid(29.99), DIST_ZONE_2)
-        self.assertEqual(self.zid(30), DIST_ZONE_3)
+        self.assertEqual(self.zid(DIST_ZONES[DIST_ZONE_1][ZONE_START_INDX]), DIST_ZONE_1)
+        self.assertEqual(self.zid(EDGE_12 - 0.01), DIST_ZONE_1)
+        self.assertEqual(self.zid(EDGE_12), DIST_ZONE_2)
+        self.assertEqual(self.zid(EDGE_23 - 0.01), DIST_ZONE_2)
+        self.assertEqual(self.zid(EDGE_23), DIST_ZONE_3)
         self.assertEqual(self.zid(DIST_MAX_IN - 0.01), DIST_ZONE_3)
 
     def test_past_max_is_last_zone(self):
@@ -241,12 +251,12 @@ class TestDebounce(DistTestBase):
 
     def test_unchanged_distance_counts(self):
         # car is parked: the same reading over and over still changes zones
-        self.ping(25.0, DIST_ZONE_PEND_CNT)
+        self.ping(IN_ZONE[DIST_ZONE_2] + 1, DIST_ZONE_PEND_CNT)
         self.assertEqual(self.motors.cmds(), [MOTOR_CMD_LEFT])
 
     def test_jitter_on_boundary_sends_nothing(self):
         for k in range(100):
-            self.ping(29.9 if k % 2 else 30.1)
+            self.ping(EDGE_23 - 0.1 if k % 2 else EDGE_23 + 0.1)
         self.assertEqual(self.motors.cmds(), [])
 
     def test_zone_0_clears_queue_first(self):
@@ -291,7 +301,9 @@ class TestRefresh(DistTestBase):
         self.ping(IN_ZONE[DIST_ZONE_2], DIST_ZONE_PEND_CNT)
         t0 = self.clock.now
         self.ping(IN_ZONE[DIST_ZONE_2], REFRESH_MS // DIST_INTERVAL_MS + 1)
-        self.assertEqual(self.motors.cmd_times(), [t0, t0 + 10 * DIST_INTERVAL_MS])
+        # the first ping at or past REFRESH_MS resends
+        n = -(-REFRESH_MS // DIST_INTERVAL_MS) # ceil
+        self.assertEqual(self.motors.cmd_times(), [t0, t0 + n * DIST_INTERVAL_MS])
 
 
 class TestQueueFull(DistTestBase):
@@ -379,7 +391,9 @@ class TestCmdRate(DistTestBase):
     def test_random_readings_rate_limited(self):
         # whatever the sensor says, commands are >= PEND_CNT pings apart
         rng = random.Random(1)
-        choices = [TIMEOUT, 0.5, 6.0, 11.9, 12.1, 20.0, 29.9, 30.1, 60.0, 280.0]
+        choices = [TIMEOUT, 0.5, IN_ZONE[DIST_ZONE_1], EDGE_12 - 0.1, EDGE_12 + 0.1,
+                   IN_ZONE[DIST_ZONE_2], EDGE_23 - 0.1, EDGE_23 + 0.1,
+                   IN_ZONE[DIST_ZONE_3], DIST_MAX_IN + 40]
         self.sonic.dist = 60.0
         for _ in range(60 * 1000 // 10): # 60s with a 10ms main loop
             if rng.random() < 0.3:

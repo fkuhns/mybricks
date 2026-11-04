@@ -3,11 +3,12 @@ from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 # FIXME: from utime import sleep
 
 # Buzzer GPIO Pin number
-BUZZ_PIN = 20
+BUZZ_PIN = 20 # FIXME: duplicated in common.py, keep in sync or define it in one place
 BUZZ_DUTY_CYCLE = 5000
 
 BUZZ_ON_TIME_MS  = 500
 BUZZ_OFF_TIME_MS = 500
+BUZZ_PERIOD_MS   = 500
 BUZZ_FREQ        = 500
 
 BUZZ_STATE_OFF     = 0x00
@@ -23,18 +24,19 @@ class Buzzer():
         self.buzzer  = PWM(Pin(BUZZ_PIN, Pin.OUT))
         self.buzzer.freq(BUZZ_FREQ)
         self.timer   = Timer(-1)
+        self.err_cnt = 0 # number of times timer.init() raised
         self.DEBUG   = debug
 
     def off(self):
-        if not (self.state & BUZZ_STATE_ENABLED):
+        if self.state == BUZZ_STATE_OFF:
             return
         
         if self.DEBUG:
             print("Buzzer off")
 
-        self.state = BUZZ_STATE_OFF
         self.timer.deinit()     # no exceptions
         self.buzzer.duty_u16(0) # value or type errors
+        self.state = BUZZ_STATE_OFF
 
     def on(self):
         if self.state & BUZZ_STATE_ENABLED:
@@ -44,18 +46,27 @@ class Buzzer():
             print("Buzzer on")
 
         self.state = BUZZ_STATE_ENABLED # enabled but not buzzing
-        self.handler(None)
+        self.handler(None) # start buzzing right away, no exceptions
+        try:
+            self.timer.init(mode=Timer.PERIODIC, period=BUZZ_PERIOD_MS, callback=self.handler)
+        except OSError as e:
+            # the buzzer stays on until off() is called
+            self.err_cnt += 1
+            if self.DEBUG:
+                print("Buzzer.on: Error initializing timer:", e)
+           # Buzzer is already on from handler call. self.buzzer.duty_u16(BUZZ_DUTY_CYCLE)
 
     def handler(self, timer):
-        # No exceptions"
-        if not (self.state & BUZZ_STATE_ENABLED):
+        # No exceptions
+        if self.state == BUZZ_STATE_OFF:
             return
-        
+
+        # Note: timer.init() may raise OSError
         if self.state & BUZZ_STATE_BUZZING: # buzzer is on, stop buzzing
             self.buzzer.duty_u16(0)
             self.state = (self.state & ~BUZZ_STATE_BUZZING) & BUZZ_STATE_MASK
-            self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_OFF_TIME_MS, callback=self.handler)
-        else:  # buzzer is off, start buzzing
+            #self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_OFF_TIME_MS, callback=self.handler)
+        elif self.state & BUZZ_STATE_ENABLED:  # buzzer is off, start buzzing
             self.buzzer.duty_u16(BUZZ_DUTY_CYCLE)
             self.state = (self.state | BUZZ_STATE_BUZZING) & BUZZ_STATE_MASK
-            self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_ON_TIME_MS, callback=self.handler)
+            #self.timer.init(mode=Timer.ONE_SHOT, period=BUZZ_ON_TIME_MS, callback=self.handler)

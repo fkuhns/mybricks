@@ -3,8 +3,9 @@ from machine import Pin, I2C
 from utime import sleep_ms, sleep_us, ticks_diff, ticks_ms
 from ssd1306 import SSD1306_I2C
 from buzzer import Buzzer
-from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
+from common import Device, DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
+# FIXME: duplicated in common.py, keep in sync or define it in one place
 I2C0_ID       = 0
 I2C0_SDA_PIN  = 4
 I2C0_SCL_PIN  = 5
@@ -13,24 +14,12 @@ I2C1_ID       = 1
 I2C1_SDA_PIN  = 2
 I2C1_SCL_PIN  = 3
 
-I2C_TOUT      = 100_000
+I2C0_FREQ  = 400_000 # hz
+I2C1_FREQ  = 100_000 # hz
+I2C0_TOUT  = 100_000 # us
+I2C1_TOUT  = 250_000 # us
 
 I2C_MAX_TRIES = 3
-
-#############################################################################
-# Motors
-#############################################################################
-MOTOR_DEF_SPEED  = 80
-
-MOTOR_MAX_TRIES = I2C_MAX_TRIES
-
-MOTOR_STATE_FWD   = "Forward"
-MOTOR_STATE_BKWD  = "Backward"
-MOTOR_STATE_LEFT  = "Left"
-MOTOR_STATE_RIGHT = "Right"
-MOTOR_STATE_STOP  = "Stopped"
-MOTOR_STATE_INIT  = "Init"
-MOTOR_STATE_UNK   = "Unknown"
 
 class I2cException(Exception):
     pass
@@ -49,9 +38,10 @@ class I2cBus():
     # Assumes only 7-bit addresses are supported. So for a write there 
     # should be 1 ack for the address frame and N ack's for the N data frames
     # Although the I2C.writeto method only returns the number of data Bytes ack'ed
-    def __init__(self, ctl, id=I2C0_ID):
-        self._ctl = ctl
-        self._id  = id
+    def __init__(self, ctl, id=I2C0_ID, tries=I2C_MAX_TRIES):
+        self._ctl   = ctl
+        self._id    = id
+        self._tries = tries # each failed try can block for up to I2C_TOUT
 
     def __str__(self):
         return "I2cBus {}: {}".format(self._id, self._ctl.i2c(self._id))
@@ -67,15 +57,17 @@ class I2cBus():
         else:
             exp_ack = sum(len(x) for x in buf)
 
-        for i in range(I2C_MAX_TRIES):
+        for i in range(self._tries):
             try:
                 acks = getattr(self._ctl.i2c(self._id), fname)(addr, buf)
                 if acks == exp_ack:
+                    self._ctl.clear_err(self._id)
                     if self._ctl.DEBUG >= DEBUG_VERB:
                         print("I2cBus.%s ack %d == expected %d - success"% (fname, acks, exp_ack))
                     return True
 
                 # acks != exp_ack
+                last_error = None # this try was a NACK, not an OSError
                 if self._ctl.DEBUG >= DEBUG_INFO:
                     print("I2cBus.%s try %d NACK: ack %d != expected %d" % (fname, i, acks, exp_ack))
 
@@ -88,12 +80,15 @@ class I2cBus():
                 self._ctl.handle_err(self._id)
         # end of for loop
         # report whatever the last error was
-        if acks != exp_ack:
+        # kind is "nack" or the OSError errno, 5 = EIO, 110 = ETIMEDOUT
+        kind = "nack" if last_error is None else last_error.args[0]
+        self._ctl.count_fail(addr, kind)
+        if last_error is None:
             raise I2cNackException("I2cBus.%s I2cNackException addr 0x%02x failed, RX acks %d != expected %d"
                                     % (fname, addr, acks, exp_ack))
         # else
         raise I2cBusException("I2cBus.%s I2cBusException addr 0x%02x failed after %d tries: %s"
-                              % (fname, addr, I2C_MAX_TRIES, last_error))
+                              % (fname, addr, self._tries, last_error))
 
     def writeto(self, addr, buf):
         # returns the number of ACKs received, 
@@ -105,7 +100,7 @@ class I2cBus():
         # will always send a stop even when a nack is given
         return self._write("writevto", addr, bufs)
 
-class I2cCtl():
+class I2cCtl(Device):
     # Creates object referenced by the application to represent I2C busses
     # I2C:
     #   - Idle both SDL and SCL are 1
@@ -147,8 +142,10 @@ class I2cCtl():
     #       * SCL Low  Pulse Width t_low:  ≥ 0.5 us
     #       * SCL High Pulse Width t_high: ≥ 0.26 us
     #  RC time controls rise and fall times which impact the actual low/hi times.
-    I2C_ERR_MAX_MS  = 1_000
-    I2C_BUS_ERR_MAX =     3
+    # Reset the bus after this many OSErrors in a row, any successful
+    # write clears the count. Not a count per time window, a timed out try
+    # takes up to the I2C timeout, so a slow bus could never reach it.
+    I2C_BUS_ERR_MAX = 3
 
 
     def __init__(self, debug=0):
@@ -156,6 +153,9 @@ class I2cCtl():
 
         self.Errors = [{"count": 0, "last": 0},
                        {"count": 0, "last": 0}]
+        self.fail_cnt  = 0  # writes that failed all their tries
+        self.fails     = {} # the same by "addr:kind", e.g. "22:110"
+        self.reset_cnt = 0  # bus resets
         # I2C0 bus for devices other than the motor
         # I2C1 bus for the motors (SDA Pin & SCL Pin)
         # 2&3, 6&7, 10&11, 14&15, 18&19, 22&23, 26&27
@@ -163,18 +163,25 @@ class I2cCtl():
         #   6/7 (LED), 10 (Button), 14/15 ultrasonic, 18/19 SPI,
         #   23 (SMPS control), 26 (Pot), 27 (LDR)
         # Available: Pins 2 & 3
-        self._i2c = [{"OBJ": None, "SCL": I2C0_SCL_PIN, "SDA": I2C0_SDA_PIN, "FREQ": 400_000},
-                     {"OBJ": None, "SCL": I2C1_SCL_PIN, "SDA": I2C1_SDA_PIN, "FREQ": 100_000}]
-        
+        self._i2c = [{"OBJ": None, "SCL": I2C0_SCL_PIN, "SDA": I2C0_SDA_PIN, "FREQ": I2C0_FREQ, "TOUT": I2C0_TOUT},
+                     {"OBJ": None, "SCL": I2C1_SCL_PIN, "SDA": I2C1_SDA_PIN, "FREQ": I2C1_FREQ, "TOUT": I2C1_TOUT}]
+        self.init() # the bus is needed by other devices' __init__, so create it now
+
+    # Device hooks, the bus is usable once initialized so start/stop do nothing
+    def _init(self):
+        self.Errors[I2C0_ID]["count"] = 0
+        self.Errors[I2C0_ID]["last"]  = 0
         self._i2c[I2C0_ID]["OBJ"] = I2C(I2C0_ID, 
-                                        scl  = Pin(self._i2c[I2C0_ID]["SCL"]), 
-                                        sda  = Pin(self._i2c[I2C0_ID]["SDA"]), 
-                                        freq = self._i2c[I2C0_ID]["FREQ"],
-                                        timeout = I2C_TOUT)
+                                        scl = Pin(self._i2c[I2C0_ID]["SCL"]), 
+                                        sda = Pin(self._i2c[I2C0_ID]["SDA"]), 
+                                        freq    = self._i2c[I2C0_ID]["FREQ"],
+                                        timeout = self._i2c[I2C0_ID]["TOUT"])
         # FIXME: fix assumption that only one bus is used!
         # self.i2c[I2C1_ID]["OBJ"] = I2C(I2C1_ID, 
         #                                scl  = Pin(self.i2c[I2C1_ID]["SCL"]), 
-        #                                sda  = Pin(self.i2c[I2C1_ID]["SDA"]),     
+        #                                sda  = Pin(self.i2c[I2C1_ID]["SDA"]),
+        #                                freq    = self._i2c[I2C1_ID]["FREQ"],
+        #                                timeout = self._i2c[I2C1_ID]["TOUT"])   
 
         if self.DEBUG >= DEBUG_INFO:
             print("I2cCtl: I2C 0 ", self._i2c[I2C0_ID]["OBJ"])
@@ -183,26 +190,29 @@ class I2cCtl():
     def __str__(self):
         return "I2C: {}".format(self._i2c[I2C0_ID]["OBJ"])
     
-    def bus(self, id=I2C0_ID):
+    def bus(self, id=I2C0_ID, tries=I2C_MAX_TRIES):
         assert id == I2C0_ID # FIXME: Temporary until I decide if I want both busses
-        return I2cBus(self, id)
+        return I2cBus(self, id, tries)
 
     def i2c(self, id):
         assert id == I2C0_ID
         return self._i2c[id]["OBJ"]
 
-    def handle_err(self, id=I2C0_ID):
-        # Called by I2cBus for each failed write due to a bus error. 
-        # Resets the bus once there are I2C_ERR_MAX_CNT errors within I2C_ERR_MAX_MS.
-        # Returns True if the bus was reset, does not raise exceptions.
-        t = ticks_ms()
-        if ticks_diff(t, self.Errors[id]["last"]) > I2cCtl.I2C_ERR_MAX_MS:
-            # reset error count and return
-            self.Errors[id]["last"]  = t
-            self.Errors[id]["count"] = 1
-            return False
+    def count_fail(self, addr, kind):
+        # called by I2cBus for each write that failed all its tries
+        self.fail_cnt += 1
+        key = "%02x:%s" % (addr, kind)
+        self.fails[key] = self.fails.get(key, 0) + 1
 
-        # increment error count
+    def clear_err(self, id=I2C0_ID):
+        # Called by I2cBus for each successful write
+        self.Errors[id]["count"] = 0
+
+    def handle_err(self, id=I2C0_ID):
+        # Called by I2cBus for each failed write due to a bus error.
+        # Resets the bus once there are I2C_BUS_ERR_MAX errors in a row.
+        # Returns True if the bus was reset, does not raise exceptions.
+        self.Errors[id]["last"]   = ticks_ms()
         self.Errors[id]["count"] += 1
         if self.Errors[id]["count"] < I2cCtl.I2C_BUS_ERR_MAX:
             return False
@@ -282,13 +292,14 @@ class I2cCtl():
 
         try:
             self._i2c[id]["OBJ"] = I2C(id, 
-                                    scl =Pin(self._i2c[id]["SCL"]), 
-                                    sda =Pin(self._i2c[id]["SDA"]), 
-                                    freq=self._i2c[id]["FREQ"],
-                                    timeout=I2C_TOUT)
+                                    scl = Pin(self._i2c[id]["SCL"]), 
+                                    sda = Pin(self._i2c[id]["SDA"]), 
+                                    freq    = self._i2c[id]["FREQ"],
+                                    timeout = self._i2c[id]["TOUT"])
             
             if self.DEBUG >= DEBUG_VERB:
                 print("** reset_i2c: New bus ", self._i2c[id]["OBJ"])
+            self.reset_cnt += 1
 
         except Exception as e:
             if self.DEBUG >= DEBUG_WARN:
@@ -302,7 +313,7 @@ class I2cCtl():
 #############################################################################
 # OLED
 #############################################################################
-OLED_I2C_ADDR = 0x3c
+OLED_I2C_ADDR = 0x3c # FIXME: duplicated in common.py, keep in sync or define it in one place
 
 OLED_WIDTH       = 128 # 16 chars within a row
 OLED_HEIGHT      =  64 #  8 chars within a column
@@ -311,7 +322,7 @@ OLED_ROW_CHARS   =  16 # OLED_WIDTH // OLED_CHAR_SIZE
 OLED_ROW_CENTER  = OLED_WIDTH // 2
 OLED_ROW_HEIGHT  = 16
 
-class OledI2c():
+class OledI2c(Device):
     def __init__(self, bus, hdr, debug=0):
         # Chars per Row: 16
         # Row 1: | FK Car|
@@ -319,23 +330,36 @@ class OledI2c():
         # Row 3: | Errors |
         self.DEBUG = debug
         self._hdr = hdr
-        self._obuf = [["row 1", 0, 0], ["row 2", 0, OLED_ROW_HEIGHT], ["row 3", 0, 2 * OLED_ROW_HEIGHT]]
+        self._obuf = [["row 1", 0,     0], 
+                      ["row 2", 0,     OLED_ROW_HEIGHT], 
+                      ["row 3", 0, 2 * OLED_ROW_HEIGHT],
+                      ["row 4", 0, 3 * OLED_ROW_HEIGHT]]
         self.updated = True
         self._octrl = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, bus, OLED_I2C_ADDR)
-        self.init_buf()
+        self.init()
         sleep_ms(5)
+
+    # Device hooks, only the buffer is reset, it is written by show()
+    def _init(self):
+        self.init_buf()
+
+    def _stop(self):
+        self.init_buf()
 
     def init_buf(self):
         self.update_row1()
         self.update_row2("Dist: --")
         self.update_row3("Status: --")
+        self.update_row4("Errors: --")
 
     def __str__(self):
-        return "Oled\n\t1) {}\n\t2) {}\n\t 3) {}".format(self._obuf[0][0], self._obuf[1][0], self._obuf[2][0])
+        return "Oled\n\t1) {}\n\t2) {}\n\t 3) {}\n\t4) {}".format(self._obuf[0][0], self._obuf[1][0], self._obuf[2][0], self._obuf[3][0])
 
     def _update_row(self, row, txt):
+        # row is 1-based, txt is a string to display. If txt is longer than the row, it will be truncated.
         if self.DEBUG >= DEBUG_VERB:
             print("Update row %d with %s" % (row, txt))
+
         tlen    = len(txt)
         xstart  = 0
         yoffset = (row - 1) * OLED_ROW_HEIGHT
@@ -354,14 +378,18 @@ class OledI2c():
         #oled.fill_rect(xstart, yoffset, 128, 8, 0)
         #oled.text(txt, xstart, yoffset)
 
-    def update_row1(self):
-        self._update_row(1, self._hdr)
+    def update_row1(self, txt=None):
+        if txt == None: txt = self._hdr
+        self._update_row(1, txt)
 
     def update_row2(self, txt):
         self._update_row(2, txt)
 
     def update_row3(self, txt):
         self._update_row(3, txt)
+
+    def update_row4(self, txt):
+        self._update_row(4, txt)
 
     # Not currently used so commenting out
     # def clear(self):

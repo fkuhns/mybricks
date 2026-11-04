@@ -1,118 +1,115 @@
-# Smart car v6 architecture
+# Smart car architecture
+
 ```mermaid
 flowchart TD
-    app["smartCar/main.py<br/>MyApp: modes, inputs, behavior"]
+    app["smartCar/smart_car.py<br/>MyApp(mode): modes, subsystems, app loop"]
 
-    subgraph shared["Shared application modules: common/"]
-        inputs["common.py<br/>Button, Pot"]
-        sensors["usonic.py · ir_sensor.py<br/>Distance and IR input"]
-        control["motor.py<br/>CarMotors and command queue"]
-        display["i2c_dev.py<br/>I2C control and OLED"]
-        drivers["picobricks.py · ssd1306.py · buzzer.py<br/>Hardware drivers"]
+    subgraph appmods["Application modules"]
+        common["common/common.py<br/>Button, Pot, debug constants"]
+        dist["common/distance.py<br/>CarDist: ultrasonic zone logic"]
+        ir["common/ir.py<br/>IRMgr: IR decode + motor queue"]
+        i2c["common/i2c_dev.py<br/>I2cCtl, I2cBus, OledI2c"]
+        motor["common/motor.py<br/>CarMotors: queued motor commands"]
+        sonic["common/usonic.py<br/>UltrasonicSensor"]
+        ir_rx["common/ir_sensor.py<br/>NEC_8 decoder / IR_RX"]
+        oled["common/ssd1306.py<br/>SSD1306_I2C display driver"]
+        buzzer["common/buzzer.py<br/>PWM buzzer driver"]
+        motor_hw["common/picobricks.py<br/>Motor controller wrapper"]
     end
 
-    subgraph hardware["Pico hardware runtime"]
-        mp["MicroPython platform modules<br/>machine · utime · framebuf"]
-        devices["GPIO / ADC · ultrasonic · IR"]
-        bus["I2C bus"]
-        outputs["Motor controller · OLED · buzzer"]
+    subgraph hardware["Pico runtime"]
+        mp["MicroPython runtime<br/>machine, utime, framebuf"]
+        gpio["GPIO / ADC<br/>button, pot, ultrasonic, IR"]
+        i2c_bus["I2C bus 0"]
+        motors["Motor controller"]
+        disp["SSD1306 OLED"]
+        beep["Buzzer"]
     end
 
-    subgraph simulation["Laptop simulation"]
-        runner["sim/run.py<br/>Loads MyApp and scenarios"]
-        stubs["sim/ platform stubs<br/>machine · utime · framebuf · micropython"]
-        world["simcore.py<br/>Virtual clock, simulated devices, car model"]
-        scenarios["sim/scenarios/<br/>Inputs, faults, expectations"]
+    subgraph sim["Laptop simulation"]
+        runner["sim/run.py<br/>loads smart_car.MyApp + scenario"]
+        stubs["sim/*.py stubs<br/>machine, utime, micropython, framebuf"]
+        world["sim/simcore.py<br/>virtual clock, devices, car model"]
+        scenarios["sim/scenarios/*.py<br/>inputs, faults, expectations"]
     end
 
-    examples["dev_examples/<br/>Standalone hardware examples"]
+    app --> common
+    app --> dist
+    app --> ir
+    app --> i2c
+    app --> motor
 
-    app --> inputs
-    app --> sensors
-    app --> control
-    app --> display
-    control --> display
-    display --> drivers
+    dist --> sonic
+    ir --> ir_rx
+    i2c --> oled
+    i2c --> buzzer
+    motor --> motor_hw
+
+    common --> gpio
+    sonic --> gpio
+    ir_rx --> gpio
+    oled --> i2c_bus
+    motor_hw --> i2c_bus
+    buzzer --> beep
+
+    i2c_bus --> motors
+    i2c_bus --> disp
 
     app --> mp
-    inputs --> devices
-    sensors --> devices
-    display --> bus
-    drivers --> bus
-    bus --> outputs
-
     runner --> app
-    scenarios --> runner
     runner --> stubs
+    scenarios --> runner
     stubs --> world
-    app --> stubs
-    inputs --> stubs
-    sensors --> stubs
-    display --> stubs
-    world --> devices
-    world --> outputs
-
-    examples -. separate examples .-> hardware
+    world --> gpio
+    world --> i2c_bus
+    world --> motors
+    world --> disp
+    world --> beep
 ```
 
-`main.py` is the application entrypoint. Its `main()` constructs `MyApp` in
-distance mode, runs the application loop, and shuts the car down before
-resetting the board.
+`smartCar/smart_car.py` is the application entry point. `main()` creates a
+`MyApp` with a `MODE_*` bitmask, installs the I2C environment, wires in optional
+distance and IR managers, and then runs the main loop until a reset is triggered.
 
 ```mermaid
 flowchart TD
-    entry["smartCar/main.py<br/>main()"] --> app["MyApp"]
-    app --> loop["MyApp.run()<br/>main loop and mode dispatch"]
-    loop --> distance["CarDist.run()<br/>autonomous distance behavior"]
-    loop --> infrared["MyApp.run_ir()<br/>remote command handling"]
-    loop --> controls["Button / Pot<br/>mode gate and turn delay"]
-    app --> shutdown["MyApp.shutdown()<br/>stop motors and refresh display"]
+    entry["smartCar/smart_car.py<br/>main()"] --> app["MyApp(mode)"]
+    app --> init["init_i2c_env()<br/>I2cCtl + OledI2c + CarMotors"]
 
-    subgraph common["Library modules in common/"]
-        common_mod["common.py<br/>Button, Pot"]
-        distance_mod["distance.py<br/>CarDist"]
-        ultrasonic_mod["usonic.py<br/>UltrasonicSensor"]
-        ir_mod["ir_sensor.py<br/>NEC_8, IR_RX"]
-        i2c_mod["i2c_dev.py<br/>I2cCtl, MotorsI2c, OledI2c"]
-        motor_lib["picobricks.py<br/>MotorDriver"]
-        display_lib["ssd1306.py<br/>SSD1306_I2C"]
-        buzzer_lib["buzzer.py<br/>Buzzer"]
-        resources["resources.py<br/>(not used by main.py)"]
-    end
+    app --> dist["CarDist(self.motors, self.oled)<br/>optional"]
+    app --> ir["IRMgr(self.motors, self.oled)<br/>optional"]
+    app --> butt["Button()<br/>optional"]
+    app --> pot["Pot()<br/>optional"]
 
-    app --> common_mod
-    app --> distance_mod
-    app --> ir_mod
-    app --> i2c_mod
-    controls -. uses .-> common_mod
-    distance --> distance_mod
-    distance_mod --> ultrasonic_mod
-    distance --> i2c_mod
-    infrared --> ir_mod
-    infrared --> i2c_mod
-    shutdown --> i2c_mod
+    app --> loop["MyApp.run()<br/>main loop"]
 
-    i2c_mod --> motor_lib
-    i2c_mod --> display_lib
-    i2c_mod --> buzzer_lib
+    loop --> gate["button.enabled()<br/>start/stop gate"]
+    loop --> turn["Pot.get_value() -> set_turn_ms()"]
+    loop --> sonar["CarDist.run()<br/>ping + zone state + motor queue"]
+    loop --> remote["IRMgr.run()<br/>decode + motor queue"]
+    loop --> motors["CarMotors.run_cmds()"]
+    loop --> display["OledI2c.show()"]
 
-    subgraph hardware["Board and attached hardware"]
-        gpio["GPIO / ADC<br/>button, potentiometer, ultrasonic sensor, IR receiver"]
-        bus["I²C bus<br/>motor controller and OLED"]
-        motor["Motors"]
-        oled["SSD1306 OLED"]
-        sound["Buzzer"]
-    end
+    dist --> sonic["UltrasonicSensor.get_distance()"]
+    ir --> ir_rx["NEC_8 callback + IR_RX command map"]
+    sonar --> motorq["motor queue"]
+    remote --> motorq
+    motorq --> motors
 
-    common_mod --> gpio
-    ultrasonic_mod --> gpio
-    ir_mod --> gpio
-    motor_lib --> bus
-    display_lib --> bus
-    buzzer_lib --> sound
-    bus --> motor
-    bus --> oled
+    motors --> bus["I2C bus 0"]
+    display --> bus
+
+    gate --> start["MyApp.start()<br/>Device.start() on each device"]
+    loop --> shutdown["MyApp.shutdown()<br/>Device.stop() on each device, in reverse"]
 ```
 
-The libraries also rely on MicroPython platform modules such as `machine` and
-`utime`, which are provided by the board runtime rather than this repository.
+The app loop is mode-driven: button and potentiometer inputs are optional, and the
+car may run in distance-only, IR-only, or combined modes. The actual hardware
+interaction is mediated by I2C wrappers in `common/i2c_dev.py`, while the
+MicroPython runtime (`machine`, `utime`, etc.) remains external to this repo.
+
+`I2cCtl`, `OledI2c`, `CarMotors`, `CarDist`, `IRMgr` and `IR_RX` derive from
+`common.Device`. Each constructor ends with `init()`, leaving the device off;
+`MyApp.start()` turns them on when the button enables the car and
+`MyApp.shutdown()` turns them off. A new device overrides the `_init()`,
+`_start()` and `_stop()` hooks and adds itself to `MyApp.devices`.

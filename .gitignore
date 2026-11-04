@@ -4,8 +4,12 @@
 
 # any Old directories
 Old/
+old/
 
 .vscode/
+
+errors.log
+errors.old
 
 .micropico
 

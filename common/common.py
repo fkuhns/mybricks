@@ -1,5 +1,5 @@
 from machine import Pin, enable_irq, disable_irq, Timer, ADC
-from utime import ticks_ms, ticks_diff
+from utime import ticks_ms, ticks_diff, ticks_add
 from array import array
 
 #############################################################################
@@ -22,6 +22,9 @@ I2C1_ID         = 1
 # wireless / IR module 0 tx and 1 rx
 IR_PIN         =  0 # wireless/ir module, UART0, pin 0 tx?
 # Pin 1 - wire example pin, wireless/IR module RX?
+# FIXME: the I2C, ultrasonic and buzzer pins are also defined in i2c_dev.py,
+# usonic.py and buzzer.py, and those copies are the ones used. Keep in sync
+# or define them in one place.
 I2C1_SDA_PIN   =  2
 I2C1_SCL_PIN   =  3
 I2C0_SDA_PIN   =  4 # OLED, SHTC3 (temp/humid)
@@ -44,6 +47,73 @@ POT_PIN        = 26 # ADC0
 LDR_PIN        = 27 # ADC1
 # Pin 28 - ADC2
 # System - Pin 29 (input) ADC3, monitor VSYS/3
+
+#############################################################################
+# Device base class
+# Common lifecycle for devices and device managers:
+#   init()  - allocate resources and set initial state, device is left off.
+#             Calling it on a running device stops it first.
+#   start() - turn the device on (enable irqs, accept commands, ...).
+#             Runs init() first if it never ran. No-op if already on.
+#   stop()  - turn the device off. No-op if never initialized or already off.
+# Subclasses do not override these, they override the hooks _init(),
+# _start() and _stop(), so there is no super() call to forget and the state
+# checks are in one place. The state only changes when the hook returns, so
+# a hook that raises (e.g. an I2cException) leaves the state as it was and the
+# call can be retried. The convention is that __init__ saves its arguments
+# and ends by calling self.init(), the app calls start() and stop().
+# The state is a class attribute so a subclass need not call
+# Device.__init__(). It is named _dev_state since several devices already
+# use self.state for their own state.
+#############################################################################
+DEVICE_STATE_UNKNOWN = const(-1)
+DEVICE_STATE_INIT    = const(0)
+DEVICE_STATE_OFF     = const(1)
+DEVICE_STATE_ON      = const(2)
+
+class DeviceException(Exception):
+    pass
+
+class Device:
+    _dev_state = DEVICE_STATE_UNKNOWN
+
+    def init(self):
+        if self._dev_state == DEVICE_STATE_ON:
+            self.stop() # likely what's intended
+        self._init()
+        self._dev_state = DEVICE_STATE_INIT
+
+    def start(self):
+        if self._dev_state == DEVICE_STATE_ON:
+            return
+        if self._dev_state == DEVICE_STATE_UNKNOWN:
+            self.init()
+        self._start()
+        self._dev_state = DEVICE_STATE_ON
+
+    def stop(self):
+        if self._dev_state == DEVICE_STATE_UNKNOWN or self._dev_state == DEVICE_STATE_OFF:
+            return
+        self._stop()
+        self._dev_state = DEVICE_STATE_OFF
+
+    def is_on(self):
+        return self._dev_state == DEVICE_STATE_ON
+
+    def is_off(self):
+        return self._dev_state != DEVICE_STATE_ON
+
+    # Hooks, override as needed
+    def _init(self):
+        pass
+
+    def _start(self):
+        pass
+
+    def _stop(self):
+        pass
+
+
 #############################################################################
 # Button
 #############################################################################
@@ -53,16 +123,30 @@ class Button():
     def __init__(self):
         self._enabled = False
         self.pressed  = False
+        self.debounce = False # True while enabled() debounces, timer.init() failed
+        self.deb_ms   = 0     # when that debounce ends
+        self.err_cnt  = 0     # number of times timer.init() raised
         self.led      = Pin(LED_PIN, Pin.OUT)
         self.button   = Pin(BUTT_PIN, Pin.IN, Pin.PULL_DOWN)
         self.timer    = Timer(-1)
+        # irq last, the handler uses the attributes above
         self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
 
     def handler(self, _):
+        try:
+            self.timer.init(period=Button.BUTT_DEBOUNCE_MS, mode=Timer.ONE_SHOT, callback=self.debounce_callback)
+        except OSError:
+            # No timer, enabled() debounces instead. The irq stays on so
+            # each bounce pushes deb_ms out.
+            self.err_cnt += 1
+            self.debounce = True
+            self.deb_ms   = ticks_add(ticks_ms(), Button.BUTT_DEBOUNCE_MS)
+            return
+        self.debounce = False
         self.button.irq(handler=None)
-        self.timer.init(period=Button.BUTT_DEBOUNCE_MS, mode=Timer.ONE_SHOT, callback=self.debounce_callback)
 
     def debounce_callback(self, _):
+        # one shot timer that has already expired, so no deinit()
         if self.button.value() == 1:
             self.pressed = True
         self.button.irq(trigger=Pin.IRQ_RISING, handler=self.handler)
@@ -70,6 +154,12 @@ class Button():
     def enabled(self):
         s = disable_irq()
         try:
+            if self.debounce and ticks_diff(ticks_ms(), self.deb_ms) >= 0:
+                # The timer could not debounce, so take the edge as a press.
+                # No button.value() check, enabled() may be called only
+                # every 0.5s and the button is likely released by then.
+                self.debounce = False
+                self.pressed  = True
             if self.pressed:
                 self._enabled = not self._enabled
                 self.pressed = False
@@ -113,11 +203,12 @@ class Pot():
 #############################################################################
 # Motor Controller
 # motor = MotorDriver(i2c)
-#############################################################################
-MOTOR_MAX_SPEED  = 255
-MOTOR_MIN_SPEED  =   0
-MOTOR_TURN_SPEED = 200
-MOTOR_DEF_SPEED  = 100
+# #############################################################################
+# FIXME: See motors.py for the actual motor driver code. The constants below are not used.
+# MOTOR_MAX_SPEED  = 255
+# MOTOR_MIN_SPEED  =   0
+# MOTOR_TURN_SPEED = 200
+# MOTOR_DEF_SPEED  = 100
 
 #############################################################################
 # I2C Bus 
@@ -168,7 +259,7 @@ LDR_LOW_LIGHT = 4000
 # oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
 # Only works with the default frequency
 #############################################################################
-OLED_I2C_ADDR = 0x3c
+OLED_I2C_ADDR = 0x3c # FIXME: duplicated in i2c_dev.py, which is the one used
 
 OLED_WIDTH       = 128 # 16 chars within a row
 OLED_HEIGHT      =  64 #  8 chars within a column

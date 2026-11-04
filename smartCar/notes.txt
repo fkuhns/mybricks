@@ -1,0 +1,20 @@
+From Claude Code:
+I recommended both, for different jobs:
+
+> 0.1 µF ceramic, one across each motor's two terminals, soldered right at the
+  motor. This suppresses the high-frequency electrical noise from the brushes
+  sparking, which is the likely cause of I2C errors that appear only while the
+  motors run. It's the cheapest fix and the one I'd do first.
+
+> 470–1000 µF electrolytic, one across the motor supply at the driver board,
+  if the board has a place for it. This one holds the supply voltage up during
+  current surges, like starting or reversing. It helps against supply dips,
+  but does little for the high-frequency noise.
+
+> So the motor caps target the noise and the big cap targets the dips. Your
+  logs showed the 5 V rail held up fairly well (lowest 4.46 V), so I'd start
+  with the 0.1 µF caps and add the bulk cap if errors remain.
+
+> When fitting the electrolytic, match its polarity: the stripe marks the
+  negative lead. Also make sure its voltage rating is above the supply
+  voltage; 10 V or more is plenty for this pack.

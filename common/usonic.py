@@ -6,21 +6,14 @@ from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 ## Ultrasonic distance sensor library for Raspberry Pi
 # HC-SR04 with CS100A is a common ultrasonic distance sensor that uses sound 
 # waves to measure distance.
-# Key details of the HC-sr04 with CSa00A:
-# - It has a trigger pin and an echo pin. The trigger pin is used to send a 
-#   pulse, and the echo pin receives the reflected pulse. The time taken
-#   for the pulse to return is used to calculate the distance.
-# - The sensor can measure distances from 2cm to 400cm with an accuracy of
-#   about 3mm.
-# - It operates at a voltage of 5V and consumes about 15mA of current.
-# - The sensor has a wide detection angle of about 15 degrees, which allows
-#   it to detect objects in a broad area.
 
+# FIXME: duplicated in common.py, keep in sync or define it in one place
 US_TRIGGER_PIN =   15  # GPIO pin for trigger
 US_ECHO_PIN    =   14  # GPIO pin for echo
 
 US_SPEED_IPUS  = 0.01359876  # Inches per microsecond
 US_DIST_MAX    = 288.00  # 144 inches = 12 feet
+US_MAX_ECHO_US = 35_000 # Out of range lock is 33ms => no timeouts?
 
 _DEBUG = DEBUG_NONE
 
@@ -28,18 +21,29 @@ class UltraSonicTimeout(Exception):
     pass
 
 class UltrasonicSensor:
+    # Appears to be a newer CS100A board with extended range.
+    # Max range 560cm (some claim 600cm). 560cm => 33ms round trip time.
+    # - Out of range lock: 
+    #   a) If no echo is received within 33ms the echo pin is pulled low
+    #   b) Chip will maintain this low for until next valid trigger
+    # - Add buffer of 30-50ms before pulling the trigger hi again.
+    # - The recommended time between measurements is 60ms
+    # - Min trigger signal is 10us. After valid trigger, echo is held low
+    #   for a "few hundred us" before it is brought hi. It remains hi
+    #   until either an echo is received or the HW timeout of 33ms occurs.
+    # - You time the duration the echo is held hi
     def __init__(self, trigger_pin=US_TRIGGER_PIN, echo_pin=US_ECHO_PIN):
         self.trig = Pin(trigger_pin, Pin.OUT)
         self.echo = Pin(echo_pin, Pin.IN)
         # At 75 degrees F, the speed of sound is 1,133.23 fps
         # 1,133.23 ft/sec * 12 in/ft * 1 sec/1,000,000 us = 0.01359876 in/us
         # or 13.59876 in/ms.
-        # @ 20' ~ 18ms
-        # x in / US_SPEED_IPUS = time to travel
-        # 12' = 144" => ~10.59ms or ~ 11ms one way
-        # 10' = 120" => ~8.824ms or ~  9ms one way
-        # 20' = 240" => ~17.65ms or ~ 18ms one way
-        self.tout_us = int(round(2* (US_DIST_MAX / US_SPEED_IPUS)))
+        # So HW timeout of 33ms (round trip time) -> 224" one-way (18' 8')
+        # x" oneway => (2*x)/0.01359876 = time to travel
+        # 12' = 144" => 21ms round trip
+        # 10' = 120" => 18ms round trip
+        # 20' = 240" => 35ms > HW timeout of 33ms
+        self.tout_us = US_MAX_ECHO_US # FIXME: int(round(2* (US_DIST_MAX / US_SPEED_IPUS)))
 
     def get_distance(self):
         """
@@ -59,16 +63,18 @@ class UltrasonicSensor:
         # >= 0 is the time in microseconds for the echo to return
         # -2 timed out while waiting for the pin to transition into requested level
         # -1 timed out during the measurement
+        # Since the CS100A is supposed to have a 33ms out of range lock, 
+        # and tout is 35ms, there, in principle, should not be timeouts for rx'ing the echo
         duration = time_pulse_us(self.echo, 1, self.tout_us) 
         if duration < 0:
-            raise UltraSonicTimeout("Ultrasonic timeout waiting for echo")
+            raise UltraSonicTimeout("Ultrasonic timeout error")
 
         # Calculate distance in inches.
         distance = (duration / 2.0) * US_SPEED_IPUS
-        # utime.sleep(0.1) # FIXME: do I need this sleep
 
-        if _DEBUG:
+        if _DEBUG >= DEBUG_VERB:
             print(duration, "us, ", distance, "in")
         
         return distance
+    
     

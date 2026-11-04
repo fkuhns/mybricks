@@ -4,6 +4,7 @@
 # single Sim instance, SIM, created at the bottom of this file.
 import functools
 import heapq
+import importlib
 import math
 import builtins
 
@@ -16,6 +17,12 @@ EIO       = 5
 ETIMEDOUT = 110
 
 _print = builtins.print
+
+
+def app_const(module, name):
+    # The app modules import machine and the machine stub imports this
+    # module, so app constants are looked up when first used, not at import
+    return getattr(importlib.import_module(module), name)
 
 
 class SimStop(BaseException):
@@ -150,7 +157,7 @@ class I2cDevice:
 
 class MotorController(I2cDevice):
     # PicoBricks motor driver: [0x26, motor, speed, dir, xor] per write
-    def __init__(self, sim, addr=0x22):
+    def __init__(self, sim, addr):
         super().__init__(sim, addr, "MotorCtl")
         self.motors = {1: (0, 0), 2: (0, 0)} # motor: (speed, dir)
         self.bad_packets = 0
@@ -174,7 +181,7 @@ class MotorController(I2cDevice):
 class OledDevice(I2cDevice):
     # SSD1306: 0x80 = command byte follows, 0x40 = display data follows.
     # Text drawn into the framebuf stub is shown when a data write succeeds.
-    def __init__(self, sim, addr=0x3c):
+    def __init__(self, sim, addr):
         super().__init__(sim, addr, "OLED")
         self.on    = False
         self.rows  = []
@@ -313,13 +320,32 @@ class Sim:
         self.pins     = {}
 
         self.car   = Car(self)
-        self.i2c   = {0: I2cWorld(self, 0, sda_pin=4, scl_pin=5)}
-        self.motor = self.i2c[0].add(MotorController(self))
-        self.oled  = self.i2c[0].add(OledDevice(self))
+        self._i2c  = None # built on first use with the app's pins and addresses, see i2c
 
         self.pot_raw = 15 << 5        # Pot.get_value() -> 16 ms
         self.distance_override = None # None = use the car model, "timeout" = no echo, or inches
         self.pings = 0
+
+    # ---------------------------------------------------------------- wiring
+    @property
+    def i2c(self):
+        if self._i2c is None:
+            bus = I2cWorld(self, 0, app_const("i2c_dev", "I2C0_SDA_PIN"),
+                           app_const("i2c_dev", "I2C0_SCL_PIN"))
+            self._motor = bus.add(MotorController(self, app_const("motor", "MOTOR_I2C_ADDR")))
+            self._oled  = bus.add(OledDevice(self, app_const("i2c_dev", "OLED_I2C_ADDR")))
+            self._i2c   = {0: bus}
+        return self._i2c
+
+    @property
+    def motor(self):
+        self.i2c # builds the bus and its devices
+        return self._motor
+
+    @property
+    def oled(self):
+        self.i2c
+        return self._oled
 
     # ---------------------------------------------------------------- time
     def now_ms(self):
@@ -449,7 +475,7 @@ class Sim:
     # ---------------------------------------------------------------- inputs
     def press_button(self, hold_ms=150, bounces=0):
         # rising edge on the button pin, optional contact bounce
-        p = self.pin(10)
+        p = self.pin(app_const("common", "BUTT_PIN"))
         self.log("INPUT", "button press%s" % (", %d bounces" % bounces if bounces else ""))
         p.drive(1)
         for i in range(bounces):
@@ -458,8 +484,9 @@ class Sim:
         self.after_us(hold_ms * 1000, p.drive, 0)
 
     def set_pot_ms(self, ms):
-        # Pot.get_value() = 1 + (read_u16 >> 5)
-        self.pot_raw = max(0, min(65535, (int(ms) - 1) << 5))
+        # Pot.get_value() = min + (read_u16 >> shift), with the app's defaults
+        pot = app_const("common", "Pot")()
+        self.pot_raw = max(0, min(65535, (int(ms) - pot.min) << pot.shift))
         self.log("INPUT", "pot -> %d ms" % ms)
 
     def set_distance(self, inches):
@@ -474,11 +501,11 @@ class Sim:
             d = self.car.range_ahead()
         if d == "timeout" or d > 400:
             return None
-        return 2 * d / 0.01359876
+        return 2 * d / app_const("usonic", "US_SPEED_IPUS")
 
     def ir_send(self, cmd, addr=0x00, fault=None, repeat=False):
-        # NEC frame as pin edges on GPIO 0. fault: "data", "addr", "short", "start"
-        p = self.pin(0)
+        # NEC frame as pin edges on the IR pin. fault: "data", "addr", "short", "start"
+        p = self.pin(app_const("common", "IR_PIN"))
         if repeat:
             widths = [9000, 2250, 562]
         else:

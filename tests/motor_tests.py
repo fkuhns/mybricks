@@ -27,9 +27,7 @@ from motor import (CarMotors, I2cException, MotorException,
                    MOTOR_STATE_FWD, MOTOR_STATE_BKWD, MOTOR_STATE_LEFT,
                    MOTOR_STATE_RIGHT, MOTOR_STATE_STOP, MOTOR_STATE_UNK,
                    MOTOR_INTER_CMD_MS, MOTOR_RETRY_MS, MOTOR_CMD_MAX_TRIES,
-                   MOTOR_TURN_DELAY_MS, MOTOR_DEF_SPEED)
-
-QSIZE = 10 # size of the command buffer in CarMotors
+                   MOTOR_TURN_DELAY_MS, MOTOR_DEF_SPEED, MOTOR_QSIZE as QSIZE)
 
 
 class FakeClock:
@@ -535,6 +533,8 @@ class TestRunCmdsI2cErrors(MotorTestBase):
         self.assertEqual(self.qlen(), 2) # later commands do not jump the queue
         self.assertEqual(self.queued()[1][0], MOTOR_CMD_STOP)
 
+    # FIXME: fails, run_cmds no longer sets _last_run on a failed try (see the
+    # FIXME there). Decide which is right and fix the code or this test.
     def test_failure_updates_last_run(self):
         self.bus.fail = 1
         self.m.add_cmd(MOTOR_CMD_FORWARD)
@@ -649,6 +649,8 @@ class TestRunCmdsI2cErrors(MotorTestBase):
             self.assertEqual(self.queued()[0][motor.MOTOR_INDX_COUNT], 1)
 
 
+# FIXME: 3 of these fail since the except Exception handler in run_cmds is
+# commented out (see the FIXME there).
 class TestRunCmdsUnexpected(MotorTestBase):
     def test_unexpected_exception_is_reraised(self):
         self.bus.exc = ValueError("boom")

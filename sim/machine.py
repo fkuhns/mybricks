@@ -1,8 +1,5 @@
 # Stub of the MicroPython machine module, backed by the simulator
-from simcore import SIM, SimReset
-
-_I2C_PINS = {0: (4, 5)}   # bus id: (SDA, SCL)
-_LED_PIN  = 7
+from simcore import SIM, SimReset, app_const
 
 
 class Pin:
@@ -22,9 +19,9 @@ class Pin:
         return "Pin(%d)" % self.id
 
     def _i2c_world(self):
-        for bid, (sda, scl) in _I2C_PINS.items():
-            if self.id in (sda, scl):
-                return SIM.i2c[bid], self.id == sda
+        for world in SIM.i2c.values():
+            if self.id in (world.sda_pin, world.scl_pin):
+                return world, self.id == world.sda_pin
         return None, False
 
     def value(self, v=None):
@@ -37,7 +34,7 @@ class Pin:
         v = 1 if v else 0
         if world and not is_sda and v and not self._st.level:
             world.scl_rising()
-        if self.id == _LED_PIN and v != self._st.level:
+        if v != self._st.level and self.id == app_const("common", "LED_PIN"):
             SIM.log("LED", "on" if v else "off")
         self._st.level = v
 
@@ -85,11 +82,14 @@ class ADC:
 class PWM:
     def __init__(self, pin, freq=None, duty_u16=None):
         self.pin = pin
+        self._freq = freq
         self._duty = 0
         self._last_on = -10**9
 
     def freq(self, f=None):
-        return 500 if f is None else None
+        if f is None:
+            return self._freq
+        self._freq = f
 
     def duty_u16(self, d=None):
         if d is None:

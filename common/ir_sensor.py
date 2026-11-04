@@ -25,14 +25,16 @@ from machine import Timer, Pin
 from array import array
 from utime import ticks_us
 from utime import ticks_us, ticks_diff
-from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
+from common import Device, DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 # from micropython import alloc_emergency_exception_buf
 # alloc_emergency_exception_buf(100)
 
 _DEBUG = const(0)
 
-class IR_RX:
+IR_BLOCK_MS = 80 # timeout to ensure a complete message has been received
+
+class IR_RX(Device):
     Timer_id = -1  # Software timer but enable override
     # Result/error codes
     # Repeat button code
@@ -73,17 +75,31 @@ class IR_RX:
         self._args      = args
         
         self._nedges    = 68 # Block lasts <= 80ms (extended mode) and has 68 edges
-        self._tblock    = 80 # timeout to ensure a complete message has been received
+        self._tblock    = IR_BLOCK_MS
         self._edge      = 0
-        self._times     = array("i", (0 for _ in range(self._nedges + 1)))  # +1 for overrun
-        self._timer     = Timer(self.Timer_id)
-        self.cb         = self.decode # Timer callback to verify received message
-
         self._extended  = extended # True for 16, False for 8
         self._addr      = 0
         self._leader    = 4000  # 4.5ms for Samsung else 9ms
-        # Pin interrupt handler for both the leading and trailing edges
+
+        self._times     = array("i", (0 for _ in range(self._nedges + 1)))  # +1 for overrun
+        self._timer     = Timer(self.Timer_id)
+        self.cb         = self.decode # Timer callback to verify received message
+        self.init() # pin irq is enabled by start()
+
+    # Device hooks
+    def _init(self):
+        self._edge = 0
+
+    def _start(self):
+        self._edge = 0
         self._pin.irq(handler=self._cb_pin, trigger=(Pin.IRQ_FALLING | Pin.IRQ_RISING))
+
+    def _stop(self):
+        self._pin.irq(handler=None)
+        self._timer.deinit()
+
+    def close(self):
+        self.stop()
 
     # **** Pin interrupt. Save time of each edge for later decode.
     def _cb_pin(self, line):
@@ -111,10 +127,6 @@ class IR_RX:
 
     def error_function(self, func):
         self._errf = func
-
-    def close(self):
-        self._pin.irq(handler=None)
-        self._timer.deinit()
 
     def decode(self, e):
         try:
