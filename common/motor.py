@@ -197,6 +197,9 @@ class CarMotors(Device):
         self.clear_cmds()
         self._last_run = ticks_ms()
 
+    def _start(self):
+        pass
+
     def _stop(self):
         # Called from Device.stop() to stop the motors and command buffer
         # raises I2cException if the motors could not be stopped, the
@@ -337,8 +340,8 @@ class CarMotors(Device):
         if self.buzzer != None:
             self.buzzer.off()
         try:
+            self._last_run = ticks_ms() # Deliberate set time regardless of success
             self.stop_force()
-            self._last_run = ticks_ms()
         except I2cException as e:
             if self.DEBUG >= DEBUG_WARN:
                 print("CatMotors.force_stop: Caught %s doc %s " % (type(e).__name__, e))

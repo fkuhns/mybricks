@@ -211,6 +211,7 @@ class MyApp():
         # stop() is a no-op for a device that is already off
         for d in reversed(self.devices):
             try:
+                # Note: CarMotors.stop() will call force_stop() which in turn clears the command queue
                 d.stop()
             except:
                 pass
@@ -221,8 +222,7 @@ class MyApp():
             self.display()
         except:
             pass
-        self.stop()
-        # XXX: self.motors.add_cmd
+        self.stop() # will execute a forced stop of motors
         self.diag.log("shutting down")
 
         
