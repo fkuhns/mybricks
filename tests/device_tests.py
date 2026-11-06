@@ -14,6 +14,11 @@ from common import Device
 
 
 class Rec(Device):
+    # From Device:
+    #  _init()  called from Device.init()  - Device state = Device.STATE_INIT
+    #  _stop()  called from Device.stop()  - Device state = Device.STATE_STOP
+    #  _start() called from Device.start() - Device state = Device.STATE_START
+    # Inherits is_on() and is_off() from Device, which check the Device state.
     # records hook calls, does not call Device.__init__() on purpose
     def __init__(self, init=True):
         self.calls = []

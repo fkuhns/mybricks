@@ -195,7 +195,7 @@ class OledDevice(I2cDevice):
                 self.on = cmd == 0xAF
         elif ctrl == 0x40 and len(parts) > 1:
             import framebuf
-            fb = framebuf.lookup(parts[1])
+            fb = framebuf.lookup(parts[1]) # type: ignore
             rows = fb.rows() if fb else ["?"]
             self.shows += 1
             if rows != self.rows:
@@ -276,7 +276,7 @@ class Car:
         w, h = self.room
         if x < radius or y < radius or x > w - radius or y > h - radius:
             return True
-        return any(math.hypot(x - ox, y - oy) < r + radius for ox, oy, r in self.obstacles)
+        return any(math.hypot(x - ox, y - oy) < r + radius for ox, oy, r in self.obstacles) # type: ignore
 
     def range_ahead(self):
         # distance from the sensor along the heading to the nearest surface
@@ -332,8 +332,8 @@ class Sim:
         if self._i2c is None:
             bus = I2cWorld(self, 0, app_const("i2c_dev", "I2C0_SDA_PIN"),
                            app_const("i2c_dev", "I2C0_SCL_PIN"))
-            self._motor = bus.add(MotorController(self, app_const("motor", "MOTOR_I2C_ADDR")))
-            self._oled  = bus.add(OledDevice(self, app_const("i2c_dev", "OLED_I2C_ADDR")))
+            self._motor = bus.add(MotorController(self, app_const("motor", "I2C_ADDR_MOTOR")))
+            self._oled  = bus.add(OledDevice(self, app_const("i2c_dev", "I2C_ADDR_OLED")))
             self._i2c   = {0: bus}
         return self._i2c
 
@@ -402,7 +402,7 @@ class Sim:
     def at(self, ms, fn, *args, **kw):
         # run fn(*args, **kw) at scenario time ms
         if kw:
-            fn = functools.partial(fn, **kw)
+            fn = functools.partial(fn, **kw) # type: ignore
         return self._schedule(self.t0_us + ms * 1000, fn, args, False)
 
     def after_us(self, us, fn, *args, irq=False):
@@ -578,4 +578,4 @@ def _pin_obj(num):
 
 
 SIM = Sim()
-SIM._pin_obj = _pin_obj
+SIM._pin_obj = _pin_obj # type: ignore

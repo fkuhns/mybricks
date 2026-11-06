@@ -35,6 +35,11 @@ _DEBUG = const(0)
 IR_BLOCK_MS = 80 # timeout to ensure a complete message has been received
 
 class IR_RX(Device):
+    # From Device:
+    #  _init()  called from Device.init()  - Device state = Device.STATE_INIT
+    #  _stop()  called from Device.stop()  - Device state = Device.STATE_STOP
+    #  _start() called from Device.start() - Device state = Device.STATE_START
+    # Inherits is_on() and is_off() from Device, which check the Device state.
     Timer_id = -1  # Software timer but enable override
     # Result/error codes
     # Repeat button code
@@ -78,7 +83,6 @@ class IR_RX(Device):
         self._tblock    = IR_BLOCK_MS
         self._edge      = 0
         self._extended  = extended # True for 16, False for 8
-        self._addr      = 0
         self._leader    = 4000  # 4.5ms for Samsung else 9ms
 
         self._times     = array("i", (0 for _ in range(self._nedges + 1)))  # +1 for overrun
@@ -89,9 +93,11 @@ class IR_RX(Device):
     # Device hooks
     def _init(self):
         self._edge = 0
+        self._addr = 0
 
     def _start(self):
         self._edge = 0
+        self._addr = 0
         self._pin.irq(handler=self._cb_pin, trigger=(Pin.IRQ_FALLING | Pin.IRQ_RISING))
 
     def _stop(self):
@@ -113,7 +119,7 @@ class IR_RX(Device):
             self._times[self._edge] = t
             self._edge += 1
         
-        # FIXME: Prcobricks.py adds ...
+        # Conditional was added by Prcobricks.py when compared to public repository. 
         if self._edge > 68 :
             if _DEBUG:
                 print("******** _cb_pin: edge > 68, set to 0 *********")

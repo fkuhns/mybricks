@@ -22,21 +22,21 @@ MODE_0 = (MODE_DIST | MODE_IR | MODE_BUTT | MODE_POT | MODE_BUZZ) & MODE_MASK
 MODE_1 = (MODE_DIST |           MODE_BUTT | MODE_POT | MODE_BUZZ) & MODE_MASK
 MODE_2 = (            MODE_IR | MODE_BUTT | MODE_POT | MODE_BUZZ) & MODE_MASK
 
-_DEBUG     = DEBUG_WARN
-_DST_DEBUG = DEBUG_WARN
-_I2C_DEBUG = DEBUG_WARN
-_MTR_DEBUG = DEBUG_WARN
-_OLD_DEBUG = DEBUG_WARN
-_IR_DEBUG  = DEBUG_WARN
+_DEBUG      = DEBUG_WARN
+_DST_DEBUG  = DEBUG_WARN
+_I2C_DEBUG  = DEBUG_WARN
+_MTR_DEBUG  = DEBUG_WARN
+_OLD_DEBUG  = DEBUG_WARN
+_IR_DEBUG   = DEBUG_WARN
 _DIAG_DEBUG = DEBUG_WARN
 
 PERF_ON = const(0)
 
 # The OLED is not needed to drive, so it must not hold up the loop: one
-# try per write, at most one update per DISPLAY_MS and none for
-# DISPLAY_ERR_MS after a failure
-DISPLAY_MS     = const(250)
-DISPLAY_ERR_MS = const(2000)
+# try per write, at most one update per DISPLAY_MIN_WAIT_MS and none for
+# DISPLAY_ERR_WAIT_MS after a failure
+DISPLAY_MIN_WAIT_MS = const( 250)
+DISPLAY_ERR_WAIT_MS = const(2000)
 
 class AppException(Exception):
     pass
@@ -102,17 +102,18 @@ class MyApp():
     def display(self):
         if _OLD_DEBUG >= DEBUG_VERB:
             print("MyApp.display")
+        
         now = ticks_ms()
         if ticks_diff(now, self.disp_ms) < self.disp_wait:
             return
         self.disp_ms   = now
-        self.disp_wait = DISPLAY_MS
+        self.disp_wait = DISPLAY_MIN_WAIT_MS
         try:
             self.oled.show()
         except I2cException as e:
             # the bus resets itself if needed, the buffer is still marked
             # updated so the next show() redraws it
-            self.disp_wait = DISPLAY_ERR_MS
+            self.disp_wait = DISPLAY_ERR_WAIT_MS
             if _OLD_DEBUG >= DEBUG_WARN:
                 print("\tDisplay: I2C exception, OLED show: ", e)
 
@@ -133,7 +134,7 @@ class MyApp():
                     while not self.butt.enabled():
                         if running:
                             try:
-                                self.shutdown()
+                                self.stop()
                                 running = 0
                             except I2cException as e:
                                 # The motors may still be running. Keep
@@ -164,22 +165,25 @@ class MyApp():
                 # ----------------------------------------------------------
                 if self.mode & MODE_IR:
                     assert self.ir is not None
+                    if PERF_ON: s = ticks_us()
                     self.ir.run()
+                    if PERF_ON: d = ticks_diff(ticks_us(), s); print("\tRun ir time %dus" % d)
 
                 # ----------------------------------------------------------
-                # Assume there are motor commands to process
+                # Assume there could be motor commands to process
                 # either from IR, Dist or both
                 if PERF_ON: s = ticks_us()
                 self.motors.run_cmds()
                 if PERF_ON: d = ticks_diff(ticks_us(), s); print("\tRun commands time %dus" % d)
+                
                 # ----------------------------------------------------------
-                # Likewise assume there has been an update to the o
-                # 
-                # led buffer
+                # Likewise assume there has been an update to the oled buffer, so show it. 
+                # The OLED is not needed to drive, so it must not hold up the loop
                 self.diag.run()
                 if PERF_ON: s = ticks_ms()
                 self.display()
                 if PERF_ON: d = ticks_diff(ticks_ms(), s); print("\tDisplay time %dms" % d)
+
             except KeyboardInterrupt:
                 if _DEBUG >= DEBUG_INFO:
                     print("Keyboard interrupt ... exiting")
@@ -203,13 +207,25 @@ class MyApp():
             d.start()
         self.diag.log("running")
 
-    def shutdown(self):
-        # stop() is a no-op for a device that is already off, so if one
-        # raises the next call only retries the ones that did not stop
+    def stop(self):
+        # stop() is a no-op for a device that is already off
         for d in reversed(self.devices):
-            d.stop()
+            try:
+                d.stop()
+            except:
+                pass
         self.diag.log("stopped")
-        # FIXME: self.display()
+
+    def shutdown(self):
+        try:
+            self.display()
+        except:
+            pass
+        self.stop()
+        # XXX: self.motors.add_cmd
+        self.diag.log("shutting down")
+
+        
 
 #============================================================================
 

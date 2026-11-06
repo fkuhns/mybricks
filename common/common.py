@@ -12,19 +12,19 @@ DEBUG_INFO  = const(3)
 DEBUG_VERB  = const(4)
 
 #############################################################################
+# I2C Global constants
+#############################################################################
+I2C0_ID        = 0
+I2C1_ID        = 1
+I2C_ADDR_SHTC3 = 0x70
+I2C_ADDR_OLED  = 0x3c
+I2C_ADDR_MOTOR = 0x22
+
+#############################################################################
 # GPIO Default pin assignments
 #############################################################################
-# I2C
-I2C0_ID         = 0
-I2C1_ID         = 1
-
-# -----------------------------------
-# wireless / IR module 0 tx and 1 rx
 IR_PIN         =  0 # wireless/ir module, UART0, pin 0 tx?
 # Pin 1 - wire example pin, wireless/IR module RX?
-# FIXME: the I2C, ultrasonic and buzzer pins are also defined in i2c_dev.py,
-# usonic.py and buzzer.py, and those copies are the ones used. Keep in sync
-# or define them in one place.
 I2C1_SDA_PIN   =  2
 I2C1_SCL_PIN   =  3
 I2C0_SDA_PIN   =  4 # OLED, SHTC3 (temp/humid)
@@ -53,7 +53,7 @@ LDR_PIN        = 27 # ADC1
 # Common lifecycle for devices and device managers:
 #   init()  - allocate resources and set initial state, device is left off.
 #             Calling it on a running device stops it first.
-#   start() - turn the device on (enable irqs, accept commands, ...).
+#   start() - turn the device on (enable irq's, accept commands, ...).
 #             Runs init() first if it never ran. No-op if already on.
 #   stop()  - turn the device off. No-op if never initialized or already off.
 # Subclasses do not override these, they override the hooks _init(),
@@ -75,6 +75,8 @@ class DeviceException(Exception):
     pass
 
 class Device:
+    # No __init__() method so child need not call super().__init__() 
+    # and can set up its own attributes before calling self.init().
     _dev_state = DEVICE_STATE_UNKNOWN
 
     def init(self):
@@ -187,40 +189,6 @@ class Pot():
     def get_value(self):
         val = self.pot.read_u16()
         return self.min + (val >> self.shift)
-  
-#############################################################################
-# IR
-#############################################################################
-
-#############################################################################
-# LED
-#############################################################################
-
-#############################################################################
-# RGB LED, WS2812
-#############################################################################
-
-#############################################################################
-# Motor Controller
-# motor = MotorDriver(i2c)
-# #############################################################################
-# FIXME: See motors.py for the actual motor driver code. The constants below are not used.
-# MOTOR_MAX_SPEED  = 255
-# MOTOR_MIN_SPEED  =   0
-# MOTOR_TURN_SPEED = 200
-# MOTOR_DEF_SPEED  = 100
-
-#############################################################################
-# I2C Bus 
-#############################################################################
-I2C_ID        = 0
-
-I2C_MAX_TRIES = 3
-
-#############################################################################
-# SHTC3 Temperature and Humidity Sensor
-#############################################################################
-SHTC3_I2C_ADDR = 0x70
 
 #############################################################################
 # NeoPixel WS2812
@@ -253,24 +221,6 @@ LDR_LOW_LIGHT = 4000
 #         return True
 #     else:
 #         return False
-    
-#############################################################################
-# OLED, screen chars are 8x8 pixels, so 128x64 = 16x8 chars
-# oled = SSD1306_I2C(OLED_WIDTH, OLED_HEIGHT, i2c, OLED_I2C_ADDR)
-# Only works with the default frequency
-#############################################################################
-OLED_I2C_ADDR = 0x3c # FIXME: duplicated in i2c_dev.py, which is the one used
-
-OLED_WIDTH       = 128 # 16 chars within a row
-OLED_HEIGHT      =  64 #  8 chars within a column
-OLED_CHAR_SIZE   =   8 # all chars are 8x8 pixels
-OLED_ROW_CHARS   =  16 # OLED_WIDTH // OLED_CHAR_SIZE
-OLED_ROW_CENTER  = OLED_WIDTH // 2
-OLED_ROW_HEIGHT  = 16
-
-# OLED_CHARS_X = OLED_WIDTH // 8 # // = floor division
-# OLED_CHARS_Y = OLED_HEIGHT // 8
-# OLED_SPACING_Y = 2 # Default spacing between lines in pixels
 
 #############################################################################
 # ADC
@@ -373,11 +323,8 @@ class RingBuffer():
     def unput(self):
         if self.tail == self.head:
             return False
-
         self.head = (self.slots - 1) if (self.head == 0) else (self.head - 1)
-
         return True
-
 
     def put(self, item):
         nxt = self.head + 1

@@ -1,9 +1,7 @@
 from machine import Pin, PWM, Timer
-from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
-# FIXME: from utime import sleep
+from common import BUZZ_PIN, DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 # Buzzer GPIO Pin number
-BUZZ_PIN = 20 # FIXME: duplicated in common.py, keep in sync or define it in one place
 BUZZ_DUTY_CYCLE = 5000
 
 BUZZ_ON_TIME_MS  = 500

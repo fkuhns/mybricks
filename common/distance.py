@@ -50,6 +50,13 @@ class DistException(Exception):
     pass
 
 class CarDist(Device):
+    # From Device:
+    # They must also call self.init() in their __init__() to set the device state to STATE_INIT 
+    # Child classes must implement the following hooks
+    #  _init()  called from Device.init()  - Device state = Device.STATE_INIT
+    #  _stop()  called from Device.stop()  - Device state = Device.STATE_STOP
+    #  _start() called from Device.start() - Device state = Device.STATE_START
+    # Inherits is_on() and is_off() from Device, which check the Device state.
     def __init__(self, 
                  motors, oled, 
                  sonic=None, # FIXME: Should this be an arg now?
@@ -67,15 +74,20 @@ class CarDist(Device):
         if self.DEBUG >= DEBUG_INFO:
             print("CarDist: Distance env up")
 
-    def __str__(self):
-        return "CarDist: zone %d pending %d (%d)" % (self.zid, self.zone_pending, self.pending_cnt)
-
     # Device hooks, starting forgets the zone so its command is sent again
     def _init(self):
+        # called from super().init() so the device state is set to STATE_INIT before returning
+        self.reset()
+
+    def _stop(self):
+        self.motors.stop() # stop the motors
+        self.oled.stop()   # stop the OLED
         self.reset()
 
     def _start(self):
         self.reset()
+        self.motors.start() # start the motors
+        self.oled.start()   # start the OLED
 
     def reset(self):
         # forget the current zone, the next reading sends its command
@@ -88,6 +100,9 @@ class CarDist(Device):
 
         self.disp_dist = DIST_TIMEOUT # distance on the OLED
 
+    def __str__(self):
+        return "CarDist: zone %d pending %d (%d)" % (self.zid, self.zone_pending, self.pending_cnt)
+    
     def read(self):
         try:
             # throws Ultrasonic exception for timeouts or other errors

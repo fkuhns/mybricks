@@ -28,12 +28,16 @@ IR_CMD_MAP = {
 }
 
 class IRMgr(Device):
+    # From Device:
+    #  _init()  called from Device.init()  - Device state = Device.STATE_INIT
+    #  _stop()  called from Device.stop()  - Device state = Device.STATE_STOP
+    #  _start() called from Device.start() - Device state = Device.STATE_START
+    # Inherits is_on() and is_off() from Device, which check the Device state.
     def __init__(self, motors, oled, debug=0):
-        # FIXME: removed from init args: pin=IR_PIN, cmd_map=IR_CMD_MAP,
-        # Add later if needed, but for now just use defaults
+        # Can add args pin=IR_PIN, cmd_map=IR_CMD_MAP if needed in the future.
         self.DEBUG   = debug
-        self.motors  = motors
-        self.oled    = oled
+        self.motors  = motors # CarMotors instance, used to queue motor commands
+        self.oled    = oled # OledI2c instance, used to display error messages
         self.cmd_map = IR_CMD_MAP
         self.err_code = 0
         self.cmd      = 0x00
@@ -49,14 +53,17 @@ class IRMgr(Device):
 
     # Device hooks
     def _init(self):
-        self.ctrl.init()
         self._clear()
 
     def _start(self):
         self._clear()
+        self.motors.start()
+        self.oled.start()
         self.ctrl.start()
 
     def _stop(self):
+        self.motors.stop()
+        self.oled.stop()
         self.ctrl.stop()
         self._clear()
 
@@ -76,8 +83,8 @@ class IRMgr(Device):
 
     # ---------------- interrupt context ----------------
     def callback(self, cmd, addr, _):
-        # An IR message has been received, ignore address.
-        # FIXME: Add command queue
+        # An IR message has been received, get command and ignore address.
+        # FIXME: Add command queue using a ring buffer instance
         self.cmd = cmd
         self.rx  = True
         if self.DEBUG >= DEBUG_VERB:
@@ -111,6 +118,7 @@ class IRMgr(Device):
                 print("IRMgr.process: Invalid command ", cmd)
             self.oled.update_row3("Unknown IR cmd")
             return
+        # self.oled.update_row3("IR cmd: 0x{:02x}".format(cmd))
         self.motors.add_cmd(motor_cmd)
 
     def run(self):

@@ -1,5 +1,5 @@
 # I2C errors the bus layer should recover from without the app noticing.
-from motor import MOTOR_DEF_SPEED as S, MOTOR_I2C_ADDR as MOTOR  # wheel speed the app drives at
+from motor import MOTOR_DEF_SPEED as S, I2C_ADDR_MOTOR as MOTOR  # wheel speed the app drives at
 from i2c_dev import I2cCtl
 from ir_sensor import IR_RX
 MODE        = "MODE_2"   # IR driven, so each motor write is easy to line up

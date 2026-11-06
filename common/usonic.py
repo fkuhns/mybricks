@@ -1,18 +1,14 @@
 from machine import Pin, time_pulse_us
 import time
-from common import DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
+from common import US_TRIGGER_PIN, US_ECHO_PIN, DEBUG_ERROR, DEBUG_INFO, DEBUG_NONE, DEBUG_VERB, DEBUG_WARN
 
 
 ## Ultrasonic distance sensor library for Raspberry Pi
 # HC-SR04 with CS100A is a common ultrasonic distance sensor that uses sound 
 # waves to measure distance.
 
-# FIXME: duplicated in common.py, keep in sync or define it in one place
-US_TRIGGER_PIN =   15  # GPIO pin for trigger
-US_ECHO_PIN    =   14  # GPIO pin for echo
-
 US_SPEED_IPUS  = 0.01359876  # Inches per microsecond
-US_DIST_MAX    = 288.00  # 144 inches = 12 feet
+# Not used ... US_DIST_MAX    = 288.00  # 144 inches = 12 feet
 US_MAX_ECHO_US = 35_000 # Out of range lock is 33ms => no timeouts?
 
 _DEBUG = DEBUG_NONE
@@ -43,12 +39,11 @@ class UltrasonicSensor:
         # 12' = 144" => 21ms round trip
         # 10' = 120" => 18ms round trip
         # 20' = 240" => 35ms > HW timeout of 33ms
-        self.tout_us = US_MAX_ECHO_US # FIXME: int(round(2* (US_DIST_MAX / US_SPEED_IPUS)))
+        self.tout_us = US_MAX_ECHO_US 
 
     def get_distance(self):
         """
         Returns the distance in inches by default.
-        FIXME: Add code for cm
         """
         # Code to trigger the ultrasonic sensor and measure the time taken.
         # The echo Pin is normally low
